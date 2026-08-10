@@ -1,0 +1,77 @@
+# Two tiers, because these repositories are private and Actions minutes are metered:
+# Linux counts 1x, Windows 2x, macOS 10x.
+#
+#   quick   runs on every push. Linux only. This is where the portability answers actually
+#           live: the C back-end is developed on macOS against homebrew's libomp, and the
+#           question that matters is whether it still builds where SHLIB_OPENMP_CFLAGS is
+#           supplied by the toolchain instead.
+#   matrix  the CRAN-like matrix across three R versions and three platforms. Run it by hand
+#           from the Actions tab before a submission, not on every push.
+#
+# The package lives in a subdirectory of this repository (the repo root holds the R package,
+# the Python package and the parity harnesses side by side), hence working-directory below.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+name: R-CMD-check
+
+permissions: read-all
+
+jobs:
+  quick:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    name: ubuntu-latest (release)
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-pandoc@v2
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          working-directory: arcstat
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          working-directory: arcstat
+          upload-snapshots: true
+
+  matrix:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.config.os }}
+    name: ${{ matrix.config.os }} (${{ matrix.config.r }})
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: ubuntu-latest,  r: 'devel', http-user-agent: 'release'}
+          - {os: ubuntu-latest,  r: 'release'}
+          - {os: ubuntu-latest,  r: 'oldrel-1'}
+          - {os: macos-latest,   r: 'release'}
+          - {os: windows-latest, r: 'release'}
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-pandoc@v2
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.config.r }}
+          http-user-agent: ${{ matrix.config.http-user-agent }}
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          working-directory: arcstat
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          working-directory: arcstat
+          upload-snapshots: true

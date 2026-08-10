@@ -1,5 +1,7 @@
 # arcstat
 
+[![R-CMD-check](https://github.com/mtloots/arcstat/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mtloots/arcstat/actions/workflows/R-CMD-check.yaml)
+
 Inference from the **arc length** of statistical functions. Most functionals summarise a curve by
 its height somewhere; arc length summarises it by how far you travel along it, which makes it a
 measure of curve complexity rather than of location or spread, and sensitive to structure the usual
