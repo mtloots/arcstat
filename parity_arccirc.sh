@@ -11,10 +11,9 @@
 set -e
 OUT=${TMPDIR:-/tmp}/parity_arccirc
 mkdir -p "$OUT"
-PKG="/Users/home/Documents/Research/Arc length statistics/packages"
-
+PKG="$(cd "$(dirname "$0")" && pwd)"
 # refuse to run against a stale copy of the shared back-end (see the guard for why)
-sh "/Users/home/Documents/Research/parity_sync_guard.sh" "$PKG/arcstat/src" "$PKG/arcstat-py" || exit 1
+sh "$PKG/parity_sync_guard.sh" "$PKG/arcstat/src" "$PKG/arcstat-py" || exit 1
 # ---- deterministic inputs, shared by both sides --------------------------------------------------
 # u grid, angles, shape values, and the uniforms used for simulation
 Rscript -e '

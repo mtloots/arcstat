@@ -134,13 +134,13 @@ void arceq2_E(const double *alpha, const double *beta, double *out) {
 
 /* equivalence curve: beta*(alpha) by scan-then-bisection on E, deterministic */
 void arceq2_bstar(const double *alpha, double *out) {
-  double lo = NAN, hi = NAN, Elo = NAN, Ehi = NAN;
+  double lo = NAN, hi = NAN, Elo = NAN;
   double prevb = NAN, prevE = NAN;
   for (int i = 1; i <= 600; i++) {
     double b = -0.999 + (0.999 - 1e-6) * (double)(i - 1) / 599.0;
     double E; arceq2_E(alpha, &b, &E);
     if (isfinite(E) && isfinite(prevE) && ((E < 0.0) != (prevE < 0.0))) {
-      lo = prevb; hi = b; Elo = prevE; Ehi = E; break;
+      lo = prevb; hi = b; Elo = prevE; break;
     }
     if (isfinite(E)) { prevb = b; prevE = E; }
   }
@@ -149,7 +149,7 @@ void arceq2_bstar(const double *alpha, double *out) {
     double mid = 0.5 * (lo + hi), Em;
     arceq2_E(alpha, &mid, &Em);
     if (!isfinite(Em)) { *out = NAN; return; }
-    if ((Em < 0.0) == (Elo < 0.0)) { lo = mid; Elo = Em; } else { hi = mid; Ehi = Em; }
+    if ((Em < 0.0) == (Elo < 0.0)) { lo = mid; Elo = Em; } else { hi = mid; }
     if (hi - lo < 1e-14) break;
   }
   *out = 0.5 * (lo + hi);

@@ -22,24 +22,10 @@ void al_statistic(const int *n, const double *u, double *out) {
 }
 
 /* --- conditional double-saddlepoint machinery --- */
-/* single-observation joint CGF kappa(a,b) = a + log integral_0^inf exp(a(sqrt(w^2+1)-1)+(b-1)w) dw,
- * valid for a < 1-b. Composite Simpson to an exponentially-decaying tail. Returns NAN out of domain. */
-static double al_kappa(double a, double b) {
-  double d = 1.0 - b - a;
-  if (d <= 1e-6) return NAN;                                 /* CGF domain a < 1-b */
-  double Wmax = 40.0 / d; if (Wmax > 250.0) Wmax = 250.0;    /* integrand ~ exp(-d w) tail */
-  int N = 20000;                                            /* even */
-  double h = Wmax / N, sum = 0.0;
-  for (int i = 0; i <= N; i++) {
-    double w = i * h;
-    double g = exp(a * (sqrt(w * w + 1.0) - 1.0) + (b - 1.0) * w);
-    double wt = (i == 0 || i == N) ? 1.0 : (i % 2 ? 4.0 : 2.0);
-    sum += wt * g;
-  }
-  double integral = sum * h / 3.0;
-  if (!(integral > 0.0) || isinf(integral)) return NAN;
-  return a + log(integral);
-}
+/* The scalar CGF al_kappa that stood here is gone with the finite-difference helpers it
+ * served: al_kappa_all computes the value and all five derivatives analytically in one
+ * Simpson pass, which is both exact and better conditioned. */
+
 
 /* Analytic derivatives of the CGF.  With phi(w) = sqrt(w^2+1) and
  *   g(w; a, b) = exp{a (phi(w) - 1) + (b - 1) w},   I(a,b) = int_0^inf g dw,
@@ -81,14 +67,9 @@ static void al_kappa_all(double a, double b, double *o) {   /* o: kv, ka, kb, ka
   o[5] = Iab / I - ra * rb;
 }
 
-/* central finite differences of kappa (retained for the moment routines below) */
-static double kv(double a, double b) { return al_kappa(a, b); }
-static double ka(double a, double b) { double h = 1e-5; return (kv(a + h, b) - kv(a - h, b)) / (2 * h); }
-static double kb(double a, double b) { double h = 1e-5; return (kv(a, b + h) - kv(a, b - h)) / (2 * h); }
-static double kaa(double a, double b) { double h = 1e-4; return (kv(a + h, b) - 2 * kv(a, b) + kv(a - h, b)) / (h * h); }
-static double kbb(double a, double b) { double h = 1e-4; return (kv(a, b + h) - 2 * kv(a, b) + kv(a, b - h)) / (h * h); }
-static double kab(double a, double b) { double h = 1e-4;
-  return (kv(a + h, b + h) - kv(a + h, b - h) - kv(a - h, b + h) + kv(a - h, b - h)) / (4 * h * h); }
+/* The finite-difference kappa helpers that stood here were superseded by al_kappa_all,
+ * which computes kv, ka, kb, kaa, kbb and kab ANALYTICALLY in one Simpson pass; the
+ * differenced versions were the source of the ill-conditioning that fix removed. */
 
 void al_pvalue(const double *s, const int *n, double *out) {
   int m = *n + 1; double t = m * (*s);

@@ -4,10 +4,9 @@
 set -e
 OUT=${TMPDIR:-/tmp}/parity_k4
 mkdir -p "$OUT"
-PKG="/Users/home/Documents/Research/Arc length statistics/packages"
-
+PKG="$(cd "$(dirname "$0")" && pwd)"
 # refuse to run against a stale copy of the shared back-end (see the guard for why)
-sh "/Users/home/Documents/Research/parity_sync_guard.sh" "$PKG/arcstat/src" "$PKG/arcstat-py" || exit 1
+sh "$PKG/parity_sync_guard.sh" "$PKG/arcstat/src" "$PKG/arcstat-py" || exit 1
 Rscript -e '
 suppressMessages(library(arcstat))
 u  <- (1:9)/10

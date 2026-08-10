@@ -36,14 +36,14 @@ static inline double next_unif(void) {
 
 /* arc-length and KS discrepancy of the ogive for sorted u (length n) and Dirichlet weights w */
 static void ogive_disc(int n, const double *u, const double *w, double *arc, double *ks) {
-  double prevx = 0.0, prevy = 0.0, C = 0.0, a = 0.0, k = 0.0;
+  double prevx = 0.0, C = 0.0, a = 0.0, k = 0.0;
   for (int i = 0; i < n; i++) {
     double dx = u[i] - prevx;
     double dy = w[i];                    /* vertical step = weight */
     a += sqrt(dx * dx + dy * dy);
     C += w[i];
     double d = fabs(C - u[i]); if (d > k) k = d;
-    prevx = u[i]; prevy = C;
+    prevx = u[i];
   }
   a += (1.0 - prevx);                    /* closing segment to (1,1); vertical part is 0 */
   *arc = a - SQRT2;
