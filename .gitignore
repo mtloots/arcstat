@@ -1,0 +1,8 @@
+*.o
+*.so
+*.dylib
+*.Rcheck/
+__pycache__/
+*.tar.gz
+.DS_Store
+retired/

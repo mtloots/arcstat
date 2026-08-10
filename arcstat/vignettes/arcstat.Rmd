@@ -1,0 +1,139 @@
+---
+title: "Arc length as a statistical functional"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Arc length as a statistical functional}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r setup}
+library(arcstat)
+```
+
+## The idea
+
+Most statistical functionals summarise a curve by its height somewhere: a moment, a quantile,
+a density value. Arc length summarises it by how far you travel along it. For a quantile
+function $Q$ on $(0,1)$ the arc length is
+
+$$\int_0^1 \sqrt{1 + Q'(u)^2}\, du,$$
+
+which is large when the curve is steep somewhere and small when it is flat. It is a measure of
+curve complexity rather than of location or spread, and it responds to structure that the
+usual functionals average away.
+
+This package collects the arc-length constructions: a goodness-of-fit test, a family of
+distributions indexed by the shape of the quantile density, an equivalence family, the
+characteristic-function version, and a Bayesian test.
+
+## Arc length of a quantile family
+
+The `arcq` family has quantile density $Q'(u) = \sigma[1 + \sum_k c_k P_k(u)]_+$ with $P_k$
+the shifted Legendre polynomials.
+
+```{r}
+o <- arcq(coef = c(0.5, -0.3), mu = 0, sigma = 1)
+arclength(o)
+```
+
+Arc length is a *shape* functional, so shifting the distribution cannot change it:
+
+```{r}
+c(at_zero = arclength(arcq(0.5, mu = 0)), at_seventeen = arclength(arcq(0.5, mu = 17)))
+```
+
+The integrand is analytic on $[0,1]$, so Gauss-Legendre converges geometrically. Sixteen nodes
+already reach machine precision, where the equally spaced grid it replaced converges linearly:
+
+```{r}
+vapply(c(8L, 16L, 32L, 64L), function(k) arclength(o, nodes = k), 0)
+```
+
+The integral is generally not elementary. With $Q'$ of degree one the antiderivative is an
+inverse hyperbolic sine; with $Q'$ of degree two it is an elliptic integral, which by
+Liouville's theorem has no elementary antiderivative; beyond that it is hyperelliptic.
+
+## Goodness of fit
+
+Under the null the probability integral transform is uniform, and the arc length of the
+resulting probability plot has a known distribution with an analytic saddlepoint tail. The
+test is powerful against local density structure — multimodality, clustering, heaping — and
+weak against smooth location and scale departures, which is the opposite of the
+empirical-distribution tests.
+
+```{r}
+set.seed(1)
+al_test(runif(200))$p.value                       # null holds
+al_test(c(runif(100), rbeta(100, 8, 8)))$p.value  # a clustered middle
+```
+
+## Characteristic-function arc length
+
+The same functional applied to the characteristic-function curve is scale free, and it has
+closed forms for several families. Two of them anchor the whole construction:
+
+```{r}
+c(normal = cf_arclength_family("normal"),
+  exponential = cf_arclength_family("exponential", lambda = 1),
+  pi = pi)
+```
+
+A symmetric monotone (Polya) law carries the value two, and the exponential carries $\pi$
+exactly. Because total arc length is scale free, the exponential rate cannot matter:
+
+```{r}
+c(rate_1 = cf_arclength_family("exponential", lambda = 1),
+  rate_2 = cf_arclength_family("exponential", lambda = 2))
+```
+
+The empirical version approaches the theoretical one on a large sample:
+
+```{r}
+set.seed(3)
+cf_arclength(rnorm(50000))
+```
+
+## The equivalence family
+
+A separate strand asks when two readings of a curve agree. The shoulder of a quantile density
+solves $3q'^2 = q q''$, transcendental in general. On the two-exponent family
+$q(u) = u^{\alpha}(1-u)^{\beta}$ it collapses to a quadratic, so the shoulder is available in
+closed form, and the returned root satisfies the *original* equation:
+
+```{r}
+al <- -0.60; be <- -0.35
+ub <- eq_ub_quad(al, be)[1]
+gp  <- al / ub - be / (1 - ub)
+gpp <- -al / ub^2 - be / (1 - ub)^2
+c(shoulder = ub, residual_of_original_equation = abs(2 * gp^2 - gpp))
+```
+
+Equivalence itself is the vanishing of a closed-form discrepancy, and the solution curve is
+increasing in $\alpha$:
+
+```{r}
+als <- seq(-0.62, -0.54, by = 0.02)
+bss <- vapply(als, eq_bstar, 0)
+rbind(alpha = als, beta_star = round(bss, 6))
+c(discrepancy_on_the_curve = eq_E(-0.60, eq_bstar(-0.60)))
+```
+
+## L-moments
+
+Population and sample L-moments are included, since the families above are estimated by
+matching them. A uniform grid has first L-moment $1/2$ and L-scale $1/6$ exactly:
+
+```{r}
+u <- (seq_len(20000) - 0.5) / 20000
+sample_lmoments(u, 4L)[1:2]
+```
+
+## Implementation
+
+The numerical primitives run in a shared C back-end that is also bound from Python, and the
+two front ends are checked against each other value by value.
