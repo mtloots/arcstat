@@ -10,6 +10,8 @@ Description: Inference from the arc length of statistical functions. Three tools
     arc-length generator and the quantile arc-length family estimated by L-moments; and a Bayesian
     nonparametric arc-length goodness-of-fit test on the Dirichlet-process posterior. The same C sources
     back the Python package 'arcstat'.
+URL: https://github.com/mtloots/arcstat
+BugReports: https://github.com/mtloots/arcstat/issues
 License: GPL-3
 Encoding: UTF-8
 Imports: stats
