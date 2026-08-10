@@ -1,28 +1,36 @@
+
 # arcstat
 
-Arc-length statistics: goodness of fit, distributions, and a Bayesian test — one shared, pure-C
-back-end, bound identically from **R** (package `arcstat`) and **Python** (this package).
+[![R-CMD-check](https://github.com/mtloots/arcstat/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mtloots/arcstat/actions/workflows/R-CMD-check.yaml)
 
-The C sources are compiled on first import; there are no third-party dependencies.
+Inference from the **arc length** of statistical functions: a
+goodness-of-fit test on the arc length of the probability plot,
+distributions built from the arc length of their defining curve, the
+characteristic-function version, the equivalence family, and a Bayesian
+test.
 
-## Three tools
+Computation runs on a shared pure-C back-end that is also bound from
+Python, and the two front ends are checked against each other value by
+value.
 
-- **Goodness of fit** — a test based on the arc length of the probability plot, with an analytic
-  saddlepoint null, sensitive to local density structure (multimodality, clustering, heaping) that the
-  Kolmogorov–Smirnov, Cramér–von Mises and Anderson–Darling tests miss:
-  `al_statistic`, `al_pvalue`, `al_moments`.
-- **Distributions** — build a distribution from the arc length of its defining curve: the quantile
-  arc-length family and its L-moment fitting: `arcq_qd`, `arcq_arclength`, `sample_lmoments`.
-- **Bayesian test** — a Dirichlet-process / Bayesian-bootstrap arc-length goodness-of-fit test:
-  `bb_post_disc`, `bb_ref_disc`, `bb_evidence`.
+## Installation
 
-```python
-import arcstat
-arcstat.al_pvalue(1.567, 50)                 # saddlepoint p-value
-arcstat.arcq_arclength([0.3, -0.2], 1.5)     # arc length of a quantile curve
-arcstat.bb_evidence(u)                        # Bayesian evidence against H0
+``` r
+# install.packages("remotes")
+remotes::install_github("mtloots/arcstat", subdir = "arcstat")
 ```
 
-The same C sources back the R package `arcstat`, and the two return identical values.
+## Usage
 
-Author: M. Theodor Loots. Licence: GPL-3.
+``` r
+library(arcstat)
+set.seed(1)
+al_test(runif(200))$p.value
+#> [1] 0.3974529
+
+## two closed forms that anchor the construction
+c(normal = cf_arclength_family("normal"),
+  exponential = cf_arclength_family("exponential", lambda = 1))
+#>      normal exponential 
+#>    2.000000    3.141593
+```

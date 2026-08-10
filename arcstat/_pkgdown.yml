@@ -1,0 +1,12 @@
+url: https://mtloots.github.io/arcstat/
+
+template:
+  bootstrap: 5
+
+reference:
+  - title: All functions
+    desc: >
+      Every exported entry point. The computation runs on a shared pure-C back-end that is also
+      bound from Python, and the two front ends are checked against each other value by value.
+    contents:
+      - matches(".*")
