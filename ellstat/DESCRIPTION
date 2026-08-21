@@ -1,0 +1,28 @@
+Package: ellstat
+Type: Package
+Title: Elliptic Moments for Circular Data
+Version: 0.1.0
+Authors@R: person("M. Theodor", "Loots", email = "theo.loots@gmail.com",
+                  role = c("aut", "cre"),
+                  comment = c(ORCID = "0000-0001-7722-3913"))
+Description: Elliptic moments generalise trigonometric moments by replacing the
+    circular functions with the Jacobi elliptic functions of a given modulus, so
+    that modulus zero recovers the trigonometric system exactly. Every member of
+    the family exists unconditionally and characterises the distribution, the
+    sample moments are unbiased at every sample size with exactly known variance
+    and joint covariance, and exact Monte Carlo tests and confidence intervals
+    follow by direct simulation of the null and by test inversion over a nuisance
+    set. The efficiency of a moment estimator relative to maximum likelihood is
+    the squared correlation between the statistic and the score, which
+    characterises the optimal modulus. Routines are provided for the basis, the
+    transfer to trigonometric moments, the elliptic von Mises family, the
+    arc-length family on an ellipse and the projected normal and Cauchy laws, on
+    a C back end shared with a Python front.
+License: GPL-3
+Encoding: UTF-8
+Depends: R (>= 4.0)
+Suggests: testthat (>= 3.0.0), knitr, rmarkdown
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0
+RoxygenNote: 7.3.2

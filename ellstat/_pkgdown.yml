@@ -1,0 +1,17 @@
+url: https://mtloots.github.io/ellstat/
+template:
+  bootstrap: 5
+reference:
+  - title: The elliptic moment system
+    contents: [ell_basis, ell_moments, ell_moment_var, ell_transfer, ell_joint,
+               ell_joint_sample]
+  - title: Exact inference
+    contents: [ell_exact_uniform, ell_joint_uniform, ell_exact_ci]
+  - title: Choosing the modulus
+    contents: [ell_catalogue, ell_eff_curve, ell_kopt, ell_efficiency,
+               ell_projfam_eff]
+  - title: Distributions
+    contents: [dellvm, rellvm, ell_evm_moments, fit_ellvm, ell_dn2_moments,
+               dprojell, rprojell, dprojfam, rprojfam]
+  - title: Elliptic functions
+    contents: [ell_KE, ell_nome, ell_jacobi]

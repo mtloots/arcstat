@@ -1,0 +1,121 @@
+---
+title: "Elliptic moments for circular data"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Elliptic moments for circular data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+library(ellstat)
+```
+
+## The idea
+
+Trigonometric moments summarise a circular distribution by averaging
+`cos(p*theta)` and `sin(p*theta)`. They characterise the law and they are the
+natural target of the method of moments, but they are a single fixed system:
+the basis cannot be adapted to the problem.
+
+The Jacobi elliptic functions supply the missing degree of freedom. For a
+modulus `k` in `[0, 1)` they deform the sine and cosine, reduce to them exactly
+at `k = 0`, and keep the two properties that make the trigonometric basis
+usable: periodicity, and the Pythagorean identity. Running them on a clock
+rescaled by the quarter period gives a basis on the circle for every modulus.
+
+```{r}
+theta <- seq(0, 2 * pi, length.out = 7)
+# at modulus zero the basis IS the trigonometric one
+max(abs(ell_basis(theta, 1L, k = 0)$C[1, ] - cos(theta)))
+```
+
+## Exact finite-sample theory
+
+Because `cn^2 + sn^2 = 1`, each basis pair is a unit vector, so the sample
+elliptic moment is a mean of unit vectors. Two consequences hold for *every*
+sample size, not asymptotically: the sample moment is unbiased, and its total
+variance is exactly `(1 - |E_p|^2)/n`.
+
+```{r}
+theta <- rellvm(200, mu = 1, kappa = 3, k = 0.9, seed = 1)
+mv <- ell_moment_var(theta, P = 3L, k = 0.9)
+mv
+# the realised and exact columns agree identically: this is an algebraic
+# identity, not a numerical approximation
+max(abs(mv[, "realised"] - mv[, "exact"]))
+```
+
+The joint covariance of several moments is exact in the same sense, where the
+corresponding result for L-moments is a limit.
+
+```{r}
+J <- ell_joint_sample(theta, P = 2L, k = 0.9)
+round(J$Sigma, 4)
+```
+
+## Exact inference
+
+The circular uniform law is fully specified, so it can be simulated directly and
+the rank p-value is exact for every sample size and every number of replicates.
+
+```{r}
+unif <- rellvm(60, mu = 0, kappa = 0, k = 0.9, seed = 3)
+ell_exact_uniform(unif, k = 0.9, B = 199L, seed = 1L)
+```
+
+Testing several moments jointly costs power against a departure concentrated in
+the first, and gains it against an antipodally symmetric departure, to which a
+first-moment test is permanently blind.
+
+```{r}
+ell_joint_uniform(unif, P = 2L, k = 0.9, B = 199L, seed = 1L)
+```
+
+Confidence intervals come from inverting the test. The null here is *composite*,
+the statistic depending on the mean direction as well as the concentration, so
+the p-value is maximised over a set of mean directions; the interval is then
+conservative rather than exact, and valid at any sample size.
+
+```{r}
+th <- rellvm(80, mu = 1, kappa = 3, k = 0.9, seed = 11)
+ci <- ell_exact_ci(th, k = 0.9, kgrid = seq(0.5, 8, length.out = 20L),
+                   B = 99L, level = 0.05, nmu = 6L)
+c(lower = ci$lower, upper = ci$upper)
+```
+
+## Which modulus?
+
+The efficiency of a moment estimator relative to maximum likelihood is exactly
+the squared correlation between the statistic and the score, so the best modulus
+maximises that correlation and can be computed without simulating anything.
+
+```{r}
+# the von Mises law is fully efficient at modulus zero and nowhere else
+round(ell_catalogue("vonmises", p1 = 2, kgrid = c(0, 0.9, 0.99))$efficiency, 4)
+```
+
+The gains are largest for heavy tails. For a wrapped Cauchy law the
+trigonometric moment retains about a fifth of the available information and the
+elliptic moment about four fifths.
+
+```{r}
+wc <- ell_catalogue("wrappedcauchy", p1 = 0.9, kgrid = c(0, 0.9, 0.999))
+round(wc$efficiency, 3)
+round(c(optimal_modulus = wc$kopt, efficiency = wc$eff_kopt), 4)
+```
+
+The criterion appears to need the answer before it can be used, since the score
+is unknown. It does not, because the surface is flat near its maximum: being in
+the right region is nearly as good as being at the optimum.
+
+## Where it does not help
+
+For the von Mises, wrapped normal and cardioid families the optimal modulus is
+zero and the deformation gains nothing. That is reported rather than concealed,
+and is what makes the rest of the catalogue trustworthy.
+
+```{r}
+round(ell_catalogue("wrappednormal", p1 = 0.6, kgrid = c(0, 0.9))$efficiency, 3)
+```

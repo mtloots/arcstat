@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ellstat"
+version = "0.1.0"
+description = "The elliptic moment system for circular data: a modulus-indexed deformation of trigonometric moments, with exact finite-sample theory"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "M. Theodor Loots", email = "theo.loots@gmail.com" }]
+keywords = ["circular data", "directional statistics", "elliptic functions", "moments", "exact inference"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ellstat = ["*.c", "*.h"]
