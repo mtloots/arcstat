@@ -2,6 +2,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include "arccirc.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -575,4 +578,135 @@ void arcc_temper_vm_trigmom(const int *p, const double *kappa, const double *mu,
     if (z <= 0.0) z = 1.0;
     out[0] = sr / z;
     out[1] = si / z;
+}
+
+/* ---- exact inference for the shape parameter ------------------------------------------------
+ * Maximum likelihood is unavailable for this family: a free rotation places the near-zero of the
+ * quantile density onto an observation, so the likelihood is unbounded. Asymptotics are no help
+ * either, because the admissible boundary |c3| = 3 sqrt(3) / 5 is attained. What remains, and is
+ * exact, is inversion of a Monte Carlo test on a ROTATION-INVARIANT statistic:
+ *   - the rotation is eliminated exactly by invariance, so there is no nuisance to profile;
+ *   - the level is exact for every n and every B (Dwass 1957; Hope 1968), not asymptotically;
+ *   - the parameter space is a compact interval, so a grid over it is exhaustive rather than a
+ *     search, and sampling the family is one transform of a uniform.
+ * Two statistics are offered. The modulus of the first trigonometric moment is the paper's own
+ * closed-form object and is about twice as efficient here, because it grows linearly in c3 where
+ * the arc-length functional grows quadratically and is nearly flat near the circular uniform. The
+ * arc-length spacings functional is retained because it is the goodness-of-fit statistic of the
+ * programme's own test, and because it responds to structure the first moment cannot see. Both are
+ * reflection invariants, so what is bracketed is |c3|; the sign needs a reflection-odd statistic.
+ * Recorded resolution is handled by grouping the reference draws exactly as the data are grouped. */
+static unsigned long long arcc_seed(int seed, int j) {
+    unsigned long long z = (unsigned long long)seed * 0x9E3779B97F4A7C15ULL
+                           ^ ((unsigned long long)(j + 1) * 0xBF58476D1CE4E5B9ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+static double arcc_unif(unsigned long long *s) {
+    unsigned long long z = (*s += 0x9E3779B97F4A7C15ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    z ^= (z >> 31);
+    return (double)(z >> 11) * (1.0 / 9007199254740992.0);
+}
+/* group to the nearest of k equal cells on the circle; k <= 0 leaves the value alone */
+static double arcc_group(double th01, int k) {
+    if (k <= 0) return th01;
+    double g = floor(th01 * (double)k + 0.5) / (double)k;
+    return g - floor(g);
+}
+/* statistic on angles given as fractions of a turn in [0,1) */
+static double arcc_stat(const double *u01, int n, int which, double *work) {
+    if (which == 0) {                                  /* modulus of the first trigonometric moment */
+        double cr = 0.0, ci = 0.0;
+        for (int i = 0; i < n; i++) { cr += cos(ARCC_TWOPI * u01[i]); ci += sin(ARCC_TWOPI * u01[i]); }
+        cr /= n; ci /= n;
+        return sqrt(cr * cr + ci * ci);
+    }
+    for (int i = 0; i < n; i++) work[i] = u01[i];      /* arc length of the circular-gap path */
+    qsort(work, (size_t)n, sizeof(double), arcc_dcmp);
+    double c = 1.0 / (double)n, s = 0.0;
+    for (int i = 0; i < n - 1; i++) { double g = work[i + 1] - work[i]; s += sqrt(g * g + c * c); }
+    double gl = 1.0 - (work[n - 1] - work[0]);
+    return s + sqrt(gl * gl + c * c);
+}
+/* entry: exact confidence interval for |c3| by test inversion.
+ * out[0], out[1] = interval endpoints (NaN if the set is empty, which is itself informative:
+ * no admissible member is consistent with the data); out[2] = the observed statistic;
+ * out[3 .. 3+ng-1] = the p-value curve over the grid, so the paper can plot what it inverted. */
+void arcc_exact_ci(const double *theta, const int *np, const int *Bp, const int *seedp,
+                   const double *cgrid, const int *ngp, const int *statp, const int *groupp,
+                   const double *levp, double *out) {
+    const int n = *np, B = *Bp, ng = *ngp, which = *statp, grp = *groupp;
+    const double lev = *levp;
+    double *u = (double *)malloc((size_t)n * sizeof(double));
+    double *wk = (double *)malloc((size_t)n * sizeof(double));
+    if (!u || !wk) { free(u); free(wk); out[0] = out[1] = 0.0 / 0.0; return; }
+    for (int i = 0; i < n; i++) {                      /* radians -> fraction of a turn, grouped */
+        double v = theta[i] / ARCC_TWOPI; v -= floor(v);
+        u[i] = arcc_group(v, grp);
+    }
+    const double tobs = arcc_stat(u, n, which, wk);
+    free(u); free(wk);
+    out[2] = tobs;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for (int j = 0; j < ng; j++) {
+        double *ub = (double *)malloc((size_t)n * sizeof(double));
+        double *w2 = (double *)malloc((size_t)n * sizeof(double));
+        if (!ub || !w2) { free(ub); free(w2); out[3 + j] = 0.0 / 0.0; continue; }
+        unsigned long long st = arcc_seed(*seedp, j);
+        int le = 0, ge = 0;
+        for (int b = 0; b < B; b++) {
+            double rot = arcc_unif(&st);
+            for (int i = 0; i < n; i++) {
+                double v = arcc_Q3_one(arcc_unif(&st), cgrid[j]) + rot;
+                v -= floor(v);
+                ub[i] = arcc_group(v, grp);
+            }
+            double t = arcc_stat(ub, n, which, w2);
+            if (t <= tobs) le++;
+            if (t >= tobs) ge++;
+        }
+        double pl = (1.0 + le) / (B + 1.0), pu = (1.0 + ge) / (B + 1.0);
+        double p = 2.0 * (pl < pu ? pl : pu);
+        out[3 + j] = p > 1.0 ? 1.0 : p;
+        free(ub); free(w2);
+    }
+    double lo = 0.0 / 0.0, hi = 0.0 / 0.0;
+    for (int j = 0; j < ng; j++) if (out[3 + j] > lev) {
+        if (!(lo == lo)) lo = cgrid[j];
+        hi = cgrid[j];
+    }
+    out[0] = lo; out[1] = hi;
+}
+
+/* entry: goodness of fit of a fitted member, by the arc-length spacings statistic of the
+ * programme's own test. The probability-integral transform through the fitted member sends the
+ * sample to uniform under the hypothesis, so the reference law is DISTRIBUTION-FREE: the reference
+ * draws are uniforms, whatever the fitted shape. out[0] = statistic, out[1] = Monte Carlo p-value,
+ * exact in level for any B by the same argument as the interval above. */
+void arcc_gof(const double *theta, const int *np, const double *c3p, const double *mup,
+              const int *Bp, const int *seedp, double *out) {
+    const int n = *np, B = *Bp;
+    double *u = (double *)malloc((size_t)n * sizeof(double));
+    double *w = (double *)malloc((size_t)n * sizeof(double));
+    if (!u || !w) { free(u); free(w); out[0] = out[1] = 0.0 / 0.0; return; }
+    for (int i = 0; i < n; i++) {
+        double v = (theta[i] - *mup) / ARCC_TWOPI;      /* undo the rotation, then invert Q */
+        v -= floor(v);
+        u[i] = arcc_Qinv(v, *c3p);
+    }
+    const double tobs = arcc_stat(u, n, 1, w);
+    unsigned long long st = arcc_seed(*seedp, 0);
+    int ge = 0;
+    for (int b = 0; b < B; b++) {
+        for (int i = 0; i < n; i++) u[i] = arcc_unif(&st);
+        if (arcc_stat(u, n, 1, w) >= tobs) ge++;
+    }
+    out[0] = tobs;
+    out[1] = (1.0 + ge) / (B + 1.0);
+    free(u); free(w);
 }

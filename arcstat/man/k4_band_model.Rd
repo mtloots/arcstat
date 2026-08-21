@@ -5,9 +5,9 @@
 \alias{k4_band_sample}
 \title{Band arc lengths of a scaled kappa curve and of a data polyline}
 \usage{
-k4_band_model(theta, breaks, nodes = 60L)
+k4_band_model(theta, breaks, nodes = 60L, p = 2)
 
-k4_band_sample(x, y, breaks)
+k4_band_sample(x, y, breaks, p = 2)
 }
 \arguments{
 \item{theta}{c(g0, g1, mu, sg, k, h)}
@@ -16,11 +16,16 @@ k4_band_sample(x, y, breaks)
 
 \item{nodes}{number of Gauss-Legendre nodes per band}
 
+\item{p}{the norm used for the arc-length element; 2 is the Euclidean default, Inf the tropical.}
+
 \item{x, y}{data ordered in x}
 }
 \value{
 A numeric vector of band arc lengths, one per band.
 }
 \description{
-Band arc lengths of a scaled kappa curve and of a data polyline
+The arc-length element is a norm of the vector \eqn{(dx, dy)}. Which norm is a modelling
+choice: \code{p = 1} gives the ordinary sum, \code{p = 2} the Euclidean arc length, and
+\code{p = Inf} the max-plus (tropical) form \eqn{\max(|dx|, |dy|)}. The three agree to within
+a factor of \eqn{\sqrt{2}}.
 }

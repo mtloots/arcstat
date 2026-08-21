@@ -10,6 +10,12 @@
 # silent exactly when the edit is narrow. So no parity verdict is worth reading until the
 # computational sources are known to agree.
 #
+# The same argument applies to the COMPILED library. The Python front compiles once and caches
+# libarcstat, so sources that match can still be fronted by a library built before the last edit;
+# if a signature changed, ctypes will push the wrong number of arguments and segfault, and if only
+# a numeric constant changed it will quietly report the old value. Any library older than the
+# sources it was built from is therefore removed here, and the next import rebuilds it.
+#
 # init.c is excluded by design. It is R's own symbol-registration glue, it is not compiled into
 # the Python library, and it carries no numerics; the two copies legitimately differ.
 set -e
@@ -26,6 +32,17 @@ for rc in "$RDIR"/*.c "$RDIR"/*.h; do
   [ -n "$pc" ] || continue
   cmp -s "$rc" "$pc" || drift="$drift $b"
 done
+find "$PYDIR" -name "libarcstat.*" -not -path "*Rcheck*" -print0 2>/dev/null |
+while IFS= read -r -d "" lib; do          # -print0 and -d "": these paths contain spaces
+  for rc in "$RDIR"/*.c "$RDIR"/*.h; do
+    [ -e "$rc" ] || continue
+    if [ "$rc" -nt "$lib" ]; then
+      echo "NOTE: removing $(basename "$lib"), older than $(basename "$rc"); import will rebuild it"
+      rm -f "$lib"; break
+    fi
+  done
+done
+
 if [ -n "$drift" ]; then
   echo "VERDICT: OUT OF SYNC --$drift"
   echo "         the Python front's copy differs from the R package source."

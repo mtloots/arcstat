@@ -6,3 +6,7 @@ __pycache__/
 *.tar.gz
 .DS_Store
 retired/
+dist/
+build/
+*.egg-info/
+.pytest_cache/

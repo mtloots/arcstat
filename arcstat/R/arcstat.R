@@ -780,22 +780,34 @@ k4_runmed <- function(y, w=9L)
   .C("arck4_runmed", as.double(y), as.integer(length(y)), as.integer(w),
      out=double(length(y)))$out
 
+## R's .C refuses a non-finite argument, so p = Inf (the tropical norm) is carried to C as -1.
+#' @noRd
+.p_code <- function(p) if (length(p) == 1L && is.infinite(p) && p > 0) -1 else as.double(p)
+
 #' Band arc lengths of a scaled kappa curve and of a data polyline
+#'
+#' The arc-length element is a norm of the vector \eqn{(dx, dy)}. Which norm is a modelling
+#' choice: \code{p = 1} gives the ordinary sum, \code{p = 2} the Euclidean arc length, and
+#' \code{p = Inf} the max-plus (tropical) form \eqn{\max(|dx|, |dy|)}. The three agree to within
+#' a factor of \eqn{\sqrt{2}}.
 #' @param theta c(g0, g1, mu, sg, k, h)
 #' @param breaks band break points (length J+1)
 #' @param nodes number of Gauss-Legendre nodes per band
+#' @param p the norm used for the arc-length element; 2 is the Euclidean default, Inf the tropical.
 #' @return A numeric vector of band arc lengths, one per band.
 #' @export
-k4_band_model <- function(theta, breaks, nodes=60L)
+k4_band_model <- function(theta, breaks, nodes=60L, p=2)
   .C("arck4_band_model", as.double(theta), as.double(breaks),
-     as.integer(length(breaks)-1L), as.integer(nodes), out=double(length(breaks)-1L))$out
+     as.integer(length(breaks)-1L), as.integer(nodes), .p_code(p),
+     out=double(length(breaks)-1L))$out
 
 #' @rdname k4_band_model
 #' @param x,y data ordered in x
 #' @export
-k4_band_sample <- function(x, y, breaks)
+k4_band_sample <- function(x, y, breaks, p=2)
   .C("arck4_band_sample", as.double(x), as.double(y), as.integer(length(x)),
-     as.double(breaks), as.integer(length(breaks)-1L), out=double(length(breaks)-1L))$out
+     as.double(breaks), as.integer(length(breaks)-1L), .p_code(p),
+     out=double(length(breaks)-1L))$out
 
 #' The two standard induction-period readings of a fitted kappa curve
 #' @param theta c(g0, g1, mu, sg, k, h)
@@ -815,7 +827,8 @@ k4_readings <- function(theta, grid=4000L){
 #' @param x data vector
 #' @param J number of curve bands
 #' @param lambda anchor weight
-#' @param w running-median window (odd)
+#' @param w running-median window
+#' @param p the norm used for the arc-length element; 2 is the Euclidean default, Inf the tropical
 #' @return A list of fitted parameters, whose components depend on which fitting routine
 #'   is called; all return the six-vector \code{theta} of the scaled kappa curve.
 #' @export
@@ -832,17 +845,27 @@ k4_fit_aleq <- function(y, bands, start=c(0,0,log(0.3))){
 
 #' @rdname k4_fit_lmom
 #' @param start transformed start vector
+#' @param drift model the slow linear rise of the Rancimat water-trap conductivity,
+#'   \code{y = g0 + m x + g1 F(x)}. Both induction-period readings are invariant to it, so the
+#'   equivalence theory is unaffected and only the fit improves.
 #' @export
-k4_fit_nls <- function(x, y, start){
+k4_fit_nls <- function(x, y, start, drift = FALSE){
+  if (drift) {
+    if (length(start) == 6L) start <- c(start[1], 0, start[-1])
+    r <- .C("arck4_fit_nls_drift", as.double(x), as.double(y), as.integer(length(x)),
+            as.double(start), out=double(8))$out
+    return(list(theta = r[c(1,3:7)], drift = r[2], obj = r[8]))
+  }
   r <- .C("arck4_fit_nls", as.double(x), as.double(y), as.integer(length(x)),
           as.double(start), out=double(7))$out
   list(theta=r[1:6], obj=r[7]) }
 
 #' @rdname k4_fit_lmom
 #' @export
-k4_fit_nalr <- function(x, y, start, J=12L, lambda=1, w=9L){
+k4_fit_nalr <- function(x, y, start, J=12L, lambda=1, w=9L, p=2){
   r <- .C("arck4_fit_nalr", as.double(x), as.double(y), as.integer(length(x)),
-          as.integer(J), as.double(lambda), as.integer(w), as.double(start), out=double(7))$out
+          as.integer(J), as.double(lambda), as.integer(w), .p_code(p),
+          as.double(start), out=double(7))$out
   list(theta=r[1:6], obj=r[7]) }
 
 #' Quantile-domain induction readings and equivalence discrepancy for tilted beta-kernel
@@ -967,3 +990,340 @@ eq_E <- function(alpha, beta)
 #' @export
 eq_bstar <- function(alpha)
   .C("arceq2_bstar", as.double(alpha), out = double(1))$out
+
+#' The equivalence-system paper's fitting and simulation loops, in the back end
+#'
+#' \code{eqfit_bc} fits the beta-companion sigmoid by deterministic Nelder--Mead from a matrix
+#' of starts (free: six columns; constrained to the equivalence curve: five), returning the
+#' fitted six-parameter theta, the SSE and both readings. \code{eqfit_bc_boot} runs the iid
+#' residual bootstrap of the constrained fit, warm-started, OpenMP over replicates with
+#' per-replicate splitmix64 streams. \code{eqfit_k4eq} and \code{eqfit_k4eq_boot} are the
+#' kappa-family analogues constrained to a locus table h -> k. \code{eqfit_msim} runs the
+#' complete manifold-test simulation (truth and two displacement arms, with the optimiser
+#' audit certificate). \code{eqfit_estsim} runs the three-estimator study. All outputs are
+#' byte-identical across thread counts and between the R and Python fronts.
+#' @param x,y the curve being fitted
+#' @param curve two-column matrix (alpha, beta) of the traced equivalence curve
+#' @param locus two-column matrix (h, k) of the kappa equivalence locus
+#' @param th a fitted theta, used to warm-start the bootstrap
+#' @param starts matrix of optimiser starts, one per row
+#' @param B bootstrap or reference replicates
+#' @param R,R2 replicate counts for the estimator simulation and for the null simulation
+#' @param n,nsizes the sample size, and the vector of sample sizes swept over
+#' @param alpha,betas a single alpha, and the vector of betas swept across it
+#' @param st5 the constrained five-parameter start, held on the equivalence curve
+#' @param awin two-element admissible window in alpha, passed as lower and upper bounds
+#' @param thref three by four matrix of reference thetas, one row per reference member
+#' @param seed seed for the per-replicate splitmix64 streams, so a run reproduces exactly
+#' @param maxit Nelder--Mead iteration cap per pass
+#' @export
+eqfit_bc <- function(x, y, starts, curve, maxit = 4000L){
+  starts <- as.matrix(starts); np <- ncol(starts)
+  stopifnot(np %in% c(5L, 6L))
+  r <- .C("arceqfit_bc", as.double(x), as.double(y), as.integer(length(x)),
+          as.double(t(starts)), as.integer(nrow(starts)), as.integer(np), as.integer(maxit),
+          as.double(curve[,1]), as.double(curve[,2]), as.integer(nrow(curve)),
+          as.double(min(curve[,1])), as.double(max(curve[,1])), out = double(9))$out
+  list(th = r[1:6], sse = r[7], a = r[8], b = r[9])
+}
+#' @rdname eqfit_bc
+#' @export
+eqfit_bc_boot <- function(x, y, th, curve, B = 30L, seed = 4207L, maxit = 2000L){
+  .C("arceqfit_bc_boot", as.double(x), as.double(y), as.integer(length(x)), as.double(th),
+     as.integer(B), as.integer(seed), as.integer(maxit),
+     as.double(curve[,1]), as.double(curve[,2]), as.integer(nrow(curve)),
+     as.double(min(curve[,1])), as.double(max(curve[,1])), out = double(B))$out
+}
+#' @rdname eqfit_bc
+#' @export
+eqfit_k4eq <- function(x, y, starts, locus, maxit = 4000L){
+  starts <- as.matrix(starts); stopifnot(ncol(starts) == 5L)
+  r <- .C("arceqfit_k4eq", as.double(x), as.double(y), as.integer(length(x)),
+          as.double(t(starts)), as.integer(nrow(starts)), as.integer(maxit),
+          as.double(locus[,1]), as.double(locus[,2]), as.integer(nrow(locus)),
+          as.double(min(locus[,1])), as.double(max(locus[,1])), out = double(8))$out
+  list(th = r[1:6], sse = r[7], a = r[8])
+}
+#' @rdname eqfit_bc
+#' @param p0 warm-start parameter vector for the bootstrap refits
+#' @export
+eqfit_k4eq_boot <- function(x, y, th, p0, locus, B = 25L, seed = 4207L, maxit = 2000L){
+  .C("arceqfit_k4eq_boot", as.double(x), as.double(y), as.integer(length(x)), as.double(th),
+     as.double(p0), as.integer(B), as.integer(seed), as.integer(maxit),
+     as.double(locus[,1]), as.double(locus[,2]), as.integer(nrow(locus)),
+     as.double(min(locus[,1])), as.double(max(locus[,1])), out = double(B))$out
+}
+#' @rdname eqfit_bc
+#' @param nM,sde,Rm design size, noise standard deviation and replicates of the manifold study
+#' @param th0 the true manifold member; \code{st5} the three profiling start transforms
+#'   (mu, sigma, alpha-centre); \code{thref} a 3 x 4 matrix of reference manifold members
+#'   (mu, sigma, alpha, beta) for the three displaced arms, used for the power certificate;
+#'   \code{awin} the
+#'   profiling alpha window \code{c(alo, ahi)}
+#' @export
+eqfit_msim <- function(nM, sde, Rm, th0, st5, curve, awin, thref, seed = 4207L, maxit = 2000L){
+  stopifnot(is.matrix(thref), nrow(thref) == 3L, ncol(thref) == 4L)
+  r <- .C("arceqfit_msim", as.integer(nM), as.double(sde), as.integer(Rm), as.integer(seed),
+          as.double(th0), as.double(st5), as.integer(maxit),
+          as.double(curve[,1]), as.double(curve[,2]), as.integer(nrow(curve)),
+          as.double(awin[1]), as.double(awin[2]), as.double(t(thref)),
+          out = double(8 * Rm))$out
+  list(Tlev = r[1:Rm], Taud = r[Rm + 1:Rm], Tp2 = r[2*Rm + 1:Rm],
+       Tp15 = r[3*Rm + 1:Rm], Tp4 = r[4*Rm + 1:Rm],
+       Tref2 = r[5*Rm + 1:Rm], Tref15 = r[6*Rm + 1:Rm], Tref4 = r[7*Rm + 1:Rm])
+}
+#' @rdname eqfit_bc
+#' @param mu,sg,al,be a single parameter point for \code{eqfit_score_at}
+#' @export
+eqfit_score_at <- function(x, y, mu, sg, al, be){
+  .C("arceqfit_score_at", as.double(x), as.double(y), as.integer(length(x)),
+     as.double(mu), as.double(sg), as.double(al), as.double(be), out = double(1))$out
+}
+#' @rdname eqfit_bc
+#' @param res a residual vector
+#' @export
+eqfit_blocklen <- function(res){
+  .C("arceqfit_blocklen", as.double(res), as.integer(length(res)), out = integer(1))$out
+}
+#' @rdname eqfit_bc
+#' @export
+eqfit_nullT <- function(nM, sde, R2, th0, st5, curve, awin, seed = 4207L, maxit = 2000L){
+  .C("arceqfit_nullT", as.integer(nM), as.double(sde), as.integer(R2), as.integer(seed),
+     as.double(th0), as.double(st5), as.integer(maxit),
+     as.double(curve[,1]), as.double(curve[,2]), as.integer(nrow(curve)),
+     as.double(awin[1]), as.double(awin[2]), out = double(R2))$out
+}
+#' @rdname eqfit_bc
+#' @param a0,b0 beta parameters of the sampled member
+#' @export
+eqfit_estsim <- function(a0, b0, R, nsizes, seed = 4207L, maxit = 500L){
+  nn <- length(nsizes)
+  r <- .C("arceqfit_estsim", as.double(a0), as.double(b0), as.integer(R),
+          as.integer(nsizes), as.integer(nn), as.integer(seed), as.integer(maxit),
+          out = double(R * 3 * 2 * nn))$out
+  array(r, dim = c(R, 3, 2, nn))
+}
+#' @rdname eqfit_bc
+#' @param k,h shape grid for the wall sweep; \code{betas} the beta grid of an E section
+#' @export
+k4_b_sweep <- function(k, h){
+  .C("arceqfit_bsweep", as.double(k), as.integer(length(k)), as.double(h),
+     out = double(length(k)))$out
+}
+#' @rdname eqfit_bc
+#' @export
+eqfit_taus <- function(a0, b0, R, n, seed = 4207L){
+  r <- .C("arceqfit_taus", as.double(a0), as.double(b0), as.integer(R), as.integer(n),
+          as.integer(seed), out = double(4 * R))$out
+  cbind(t3 = r[1:R], t4 = r[R + 1:R], al = r[2*R + 1:R], be = r[3*R + 1:R])
+}
+#' @rdname eqfit_bc
+#' @export
+k4_ab_sweep <- function(k, h){
+  r <- .C("arceqfit_absweep", as.double(k), as.integer(length(k)), as.double(h),
+          a = double(length(k)), b = double(length(k)))
+  list(a = r$a, b = r$b)
+}
+#' @rdname eqfit_bc
+#' @export
+eq_E_sweep <- function(alpha, betas){
+  .C("arceqfit_Esweep", as.double(alpha), as.double(betas), as.integer(length(betas)),
+     out = double(length(betas)))$out
+}
+
+#' The fitting-method multiverse of one induction run: eight admissible pipelines under one
+#' moving-block residual bootstrap
+#'
+#' All eight pipelines report the standard tangent reading from the same trace: the
+#' variable-projection least-squares fit with its GEV submodel selection (\code{LS}), running
+#' medians of window nine and twenty-one followed by transformed-parameter NLS
+#' (\code{med9-LS}, \code{med21-LS}), the banded arc-length estimator (\code{arc}), the GEV
+#' submodel in its own right (\code{GEV-LS}), the selection fit past the run's measured
+#' transient cutoff (\code{transient-excised}), and the selection fit on each half-density
+#' index grid (\code{grid-odd}, \code{grid-even}). Replicates start from the base fit;
+#' point estimates use the full start grid. Resampling indices come from per-replicate
+#' splitmix64 streams, so the result is identical whatever the OpenMP thread count and
+#' identical between the R and Python fronts.
+#'
+#' @param x,y the logged curve
+#' @param cut transient cutoff in the units of \code{x}; \code{-Inf} excises nothing
+#' @param B bootstrap replicates; \code{0} returns point estimates only
+#' @param seed integer seed for the per-replicate streams
+#' @param bounds the admissible shape box \code{(k_lo, k_hi, h_lo, h_hi)}
+#' @param maxit Nelder--Mead iteration cap per start
+#' @return \code{list(a_pt, A)}: the eight named point estimates, and the \code{B} by eight
+#'   matrix of replicate readings (\code{NULL} when \code{B = 0})
+#' @export
+k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
+                       bounds = c(-0.98, 0.95, 0, 4), maxit = 1500L){
+  n <- length(x); stopifnot(length(y) == n, B >= 0)
+  r <- .C("arck4_mv_boot", as.double(x), as.double(y), as.integer(n),
+          as.double(if (is.finite(cut)) cut else -1e300), as.integer(B),
+          as.integer(seed), as.double(bounds), as.integer(maxit),
+          a_pt = double(8), A = double(max(1L, B) * 8))
+  meth <- c("LS", "med9-LS", "med21-LS", "arc", "GEV-LS", "transient-excised",
+            "grid-odd", "grid-even")
+  a_pt <- r$a_pt; names(a_pt) <- meth
+  A <- if (B > 0) matrix(r$A, nrow = B, ncol = 8, byrow = TRUE,
+                         dimnames = list(NULL, meth)) else NULL
+  list(a_pt = a_pt, A = A)
+}
+
+#' Variable-projection fit of the drifted kappa response
+#'
+#' Fits \eqn{y = g_0 + m x + g_1 F(x;\mu,\sigma,k,h)}. The mean curve is linear in the three
+#' coefficients, so they are solved exactly for any shape and only the four shape parameters are
+#' searched; the multi-start is run in the C back end, in parallel over starts, and the best is
+#' chosen serially so the answer does not depend on the thread count.
+#' @param x,y the curve.
+#' @param starts a matrix with four columns, \code{(mu, log sigma, k, log h)}, one row per start.
+#' @param maxit iterations per Nelder-Mead descent.
+#' @param bounds admissible shape box \code{c(k_lo, k_hi, h_lo, h_hi)}. The default lower bound on
+#'   \eqn{k} is the one the edible-oil analysis settled on: a wider box lowers the residual sum of
+#'   squares but moves the fitted induction periods away from the laboratory values, so the choice is
+#'   the analyst's and is stated here rather than fixed in the back end. A lower bound of zero
+#'   on \eqn{h} is admissible and meaningful: it admits the generalised extreme value
+#'   distribution, the \eqn{h \to 0} member of the family, and with \eqn{k = 0} the Gumbel.
+#' @param hfix hold \eqn{h} at this value and fit the remaining three parameters, which is how a
+#'   submodel is fitted in its own right; \code{NA} (the default) fits all four. Because \eqn{h} is
+#'   searched on the log scale, \eqn{h = 0} is unreachable by the free search, which creeps toward
+#'   it and reports a spurious small value instead of naming the submodel. Choosing between the two
+#'   fits is model selection between a nested pair, and is left to the caller.
+#' @return a list with \code{theta} in the six-vector convention \code{(g0, g1, mu, sg, k, h)},
+#'   the fitted \code{drift}, and the residual sum of squares \code{rss}.
+#' @export
+k4_fit_varpro <- function(x, y, starts, maxit = 1500L,
+                          bounds = c(-0.98, 0.95, 0, 4), hfix = NA_real_) {
+  starts <- as.matrix(starts)
+  stopifnot(ncol(starts) == 4L, length(bounds) == 4L,
+            bounds[1] < bounds[2], bounds[3] < bounds[4], bounds[3] >= 0)
+  r <- .C("arck4_fit_varpro", as.double(x), as.double(y), as.integer(length(x)),
+          as.double(t(starts)), as.integer(nrow(starts)), as.integer(maxit),
+          as.double(bounds), as.double(if (is.na(hfix)) -1 else hfix),
+          out = double(8))$out
+  list(theta = c(r[1], r[3], r[4], r[5], r[6], r[7]), drift = r[2], rss = r[8])
+}
+
+#' Exact mean of the tropical band arc length under Gaussian error
+#'
+#' The tropical (max-plus) arc-length element \eqn{\max(dx, |dy|)} has an expectation elementary in
+#' \eqn{\Phi} and \eqn{\varphi} when the curve is observed with independent Gaussian error, whereas
+#' the Euclidean element's expectation is a confluent hypergeometric function. The observed band arc
+#' length can therefore be compared with its own mean rather than with a clean-curve quantity it does
+#' not estimate.
+#'
+#' Only the mean is returned. The variance of a band sum is not the sum of the elements' variances:
+#' consecutive increments share an observation, and although the noise increments correlate at
+#' \eqn{-1/2} the absolute value discards the sign and leaves the elements positively correlated, so
+#' summing as if independent understates a band's variance by roughly a fifth. That correction is not
+#' elementary and is deliberately not supplied.
+#' @param x ordered design points.
+#' @param theta the six-vector \code{(g0, g1, mu, sg, k, h)}.
+#' @param sigma error standard deviation of a single observation.
+#' @param breaks the \code{J+1} band edges.
+#' @return the \code{J} expected band arc lengths.
+#' @export
+k4_band_trop_mean <- function(x, theta, sigma, breaks) {
+  J <- length(breaks) - 1L
+  stopifnot(length(theta) == 6L, sigma >= 0, J >= 1L)
+  .C("arck4_band_trop_mean", as.double(x), as.integer(length(x)), as.double(theta),
+     as.double(sigma), as.double(breaks), as.integer(J), out = double(J))$out
+}
+
+#' One-way variance components and the intraclass correlation
+#'
+#' Decomposes the variance of \code{y} into within-group and between-group parts under a one-way
+#' random-effects model, and returns the intraclass correlation. Groups may be of unequal size;
+#' the between-group mean square is divided by the unbalanced constant
+#' \eqn{k_0 = (N - \sum n_i^2 / N)/(G-1)} rather than by the mean group size, which is the
+#' balanced-design shortcut and biases the ratio when group sizes differ.
+#'
+#' A negative between-group variance estimate is truncated at zero, the usual convention.
+#'
+#' @param y numeric observations.
+#' @param g grouping vector; coerced with \code{factor}, so any labels will do.
+#' @return named numeric vector: \code{icc}, \code{sd_within}, \code{sd_between}.
+#' @examples
+#' ## replicate runs on the same specimen agree more closely than runs on different specimens
+#' y <- c(1.1, 1.2, 1.0,  5.1, 5.3, 4.9,  9.0, 9.2, 8.8)
+#' g <- rep(1:3, each = 3)
+#' k4_icc(y, g)["icc"] > 0.9
+#' @export
+k4_icc <- function(y, g) {
+  ok <- is.finite(y)
+  y  <- as.double(y[ok]); g <- factor(g[ok])
+  out <- .C("arcvc_icc_oneway", y, as.integer(as.integer(g) - 1L),
+            as.integer(length(y)), as.integer(nlevels(g)), out = double(3))$out
+  stats::setNames(out, c("icc", "sd_within", "sd_between"))
+}
+
+#' Distance from fitted shapes to the equivalence locus
+#'
+#' Shortest Euclidean distance in the \eqn{(h,k)} shape plane from each fitted shape to the
+#' equivalence locus, supplied as a polyline. Distance is measured to the segments of the polyline
+#' rather than to its vertices: a vertex-only search overstates the distance by up to half the
+#' vertex spacing, which matters when the distance is compared against the price of the constraint.
+#'
+#' @param h,k numeric vectors of fitted shape parameters, of equal length.
+#' @param locus_h,locus_k the locus polyline, of equal length.
+#' @return numeric vector of distances, \code{NA} where the shape is not finite.
+#' @examples
+#' ## a shape sitting on the locus is at distance zero
+#' lh <- seq(0.05, 0.39, length.out = 20); lk <- seq(-0.04, 0.81, length.out = 20)
+#' k4_locus_dist(lh[5], lk[5], lh, lk) < 1e-12
+#' @export
+k4_locus_dist <- function(h, k, locus_h, locus_k) {
+  stopifnot(length(h) == length(k), length(locus_h) == length(locus_k))
+  .C("arcvc_locus_dist", as.double(h), as.double(k), as.integer(length(h)),
+     as.double(locus_h), as.double(locus_k), as.integer(length(locus_h)),
+     out = double(length(h)))$out
+}
+
+#' Exact confidence interval for the shape parameter of the wrapped order-three family
+#'
+#' Inverts a Monte Carlo test on a rotation-invariant statistic. The rotation is eliminated exactly
+#' by invariance, so no nuisance parameter is profiled; the level is exact for every sample size and
+#' every number of reference draws rather than asymptotically, which matters because the admissible
+#' boundary is attained and because the likelihood of this family is unbounded. Both statistics are
+#' reflection invariants, so the interval brackets \code{|c3|}; the sign requires a reflection-odd
+#' statistic. Recorded resolution is handled by grouping the reference draws as the data are grouped.
+#'
+#' @param theta observed angles in radians
+#' @param cgrid grid over the admissible \code{|c3|} interval; the grid is the parameter space, so
+#'   it is exhaustive rather than a search
+#' @param B reference draws per grid point
+#' @param stat 0 for the first trigonometric moment (about twice as efficient) or 1 for the
+#'   arc-length spacings functional. Both are reflection invariants.
+#' @param seed seed for the splitmix64 stream, so a run reproduces exactly
+#' @param group 0 for continuous data, or the number of equal cells the data are grouped into
+#'   (36 for ten-degree grouping)
+#' @param level test level, so the interval has coverage \code{1 - level}
+#' @return list with the interval, the observed statistic and the p-value curve that was inverted
+#' @export
+arcc_exact_ci <- function(theta, cgrid = seq(0, arcc_c3max(), length.out = 81), B = 999L,
+                          stat = 0L, group = 0L, level = 0.10, seed = 4207L){
+  ng <- length(cgrid)
+  o <- .C(C_arcc_exact_ci, as.double(theta), as.integer(length(theta)), as.integer(B),
+          as.integer(seed), as.double(cgrid), as.integer(ng), as.integer(stat),
+          as.integer(group), as.double(level), out = double(3L + ng))$out
+  list(lower = o[1], upper = o[2], stat = o[3], pcurve = o[3 + seq_len(ng)], cgrid = cgrid,
+       excludes_uniform = !is.na(o[1]) && o[1] > 0)
+}
+
+#' Goodness of fit of a fitted circular arc-length member
+#'
+#' The probability-integral transform through the fitted member sends the sample to uniform under the
+#' hypothesis, so the reference law of the arc-length spacings statistic is distribution-free and the
+#' Monte Carlo p-value is exact in level for any number of reference draws.
+#'
+#' @param theta angles in radians
+#' @param fit a fitted object from \code{fit_arccirc}, supplying the member through which the
+#'   probability-integral transform is taken
+#' @param B reference draws
+#' @param seed seed for the splitmix64 stream, so a run reproduces exactly
+#' @export
+arcc_gof <- function(theta, fit, B = 999L, seed = 4207L){
+  o <- .C(C_arcc_gof, as.double(theta), as.integer(length(theta)), as.double(fit$c3),
+          as.double(fit$mu), as.integer(B), as.integer(seed), out = double(2))$out
+  list(stat = o[1], p = o[2])
+}

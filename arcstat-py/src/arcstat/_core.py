@@ -11,7 +11,9 @@ if not _os.path.exists(_libpath):                       # compile the three core
                     _os.path.join(_here, "arclen.c"), _os.path.join(_here, "arcdistc.c"),
                     _os.path.join(_here, "bayesarc.c"), _os.path.join(_here, "cfarc.c"), _os.path.join(_here, "arccirc.c"),
                     _os.path.join(_here, "arck4.c"), _os.path.join(_here, "arceq.c"),
-                    _os.path.join(_here, "arceq2.c"),
+                    _os.path.join(_here, "arceq2.c"), _os.path.join(_here, "arck4fit.c"), _os.path.join(_here, "arcvc.c"),
+                    _os.path.join(_here, "arcmv.c"),
+                    _os.path.join(_here, "arceqfit.c"),
                     "-lm", "-o", _libpath])
 _lib = _ct.CDLL(_libpath)
 _dp, _ip = _ct.POINTER(_ct.c_double), _ct.POINTER(_ct.c_int)
@@ -33,6 +35,26 @@ _lib.arcc_qd3.argtypes = [_dp, _ip, _dp, _dp]
 _lib.arcc_Q3.argtypes = [_dp, _ip, _dp, _dp]
 _lib.arcc_dens3.argtypes = [_dp, _ip, _dp, _dp, _dp]
 _lib.arcc_trigmom3.argtypes = [_ip, _dp, _dp, _ip, _dp]
+_lib.arcc_gof.argtypes = [_dp, _ip, _dp, _dp, _ip, _ip, _dp]
+def arcc_gof(theta, c3, mu, B=999, seed=4207):
+    """Goodness of fit of a fitted circular arc-length member: arc-length spacings statistic on the
+    probability-integral transform, whose reference law is distribution-free. Same bytes as R."""
+    out = (_ct.c_double * 2)()
+    _lib.arcc_gof(_vec(theta), _i(len(theta)), _d1(c3), _d1(mu), _i(B), _i(seed), out)
+    return {"stat": out[0], "p": out[1]}
+
+_lib.arcc_exact_ci.argtypes = [_dp, _ip, _ip, _ip, _dp, _ip, _ip, _ip, _dp, _dp]
+def arcc_exact_ci(theta, cgrid, B=999, stat=0, group=0, level=0.10, seed=4207):
+    """Exact confidence interval for |c3| of the wrapped order-three family, by inverting a Monte
+    Carlo test on a rotation-invariant statistic. Level exact for any n and any B; the rotation is
+    removed by invariance. Same bytes as the R front."""
+    ng = len(cgrid)
+    out = (_ct.c_double * (3 + ng))()
+    _lib.arcc_exact_ci(_vec(theta), _i(len(theta)), _i(B), _i(seed), _vec(cgrid), _i(ng),
+                       _i(stat), _i(group), _d1(level), out)
+    o = list(out)
+    return {"lower": o[0], "upper": o[1], "stat": o[2], "pcurve": o[3:3+ng]}
+
 _lib.arcc_rand3.argtypes = [_dp, _ip, _dp, _dp, _dp]
 _lib.arcc_fit3.argtypes = [_dp, _ip, _ip, _dp]
 _lib.arcc_qd_fr.argtypes = [_dp, _ip, _dp, _dp, _ip, _dp]
@@ -53,7 +75,13 @@ def _d(seq):
     a = (_ct.c_double * max(len(seq), 1))()
     for i, v in enumerate(seq): a[i] = v
     return a
+def _i2(seq):
+    a = (_ct.c_int * len(seq))()
+    a[:] = [int(v) for v in seq]
+    return a
+
 def _i(v): a = (_ct.c_int * 1)(); a[0] = v; return a
+def _iv(v): a = (_ct.c_int * len(v))(); a[:] = [int(t) for t in v]; return a
 def _d1(v): a = (_ct.c_double * 1)(); a[0] = v; return a
 
 # ---- goodness of fit ----
@@ -321,13 +349,18 @@ _lib.arck4_cdf.argtypes        = [_dp, _ip, _dp, _dp, _dp, _dp, _dp]
 _lib.arck4_pdf.argtypes        = [_dp, _ip, _dp, _dp, _dp, _dp, _dp]
 _lib.arck4_tau34.argtypes      = [_dp, _dp, _ip, _dp]
 _lib.arck4_runmed.argtypes     = [_dp, _ip, _ip, _dp]
-_lib.arck4_band_model.argtypes = [_dp, _dp, _ip, _ip, _dp]
-_lib.arck4_band_sample.argtypes= [_dp, _dp, _ip, _dp, _ip, _dp]
+_lib.arck4_band_model.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp]
+_lib.arck4_band_sample.argtypes= [_dp, _dp, _ip, _dp, _ip, _dp, _dp]
 _lib.arck4_readings.argtypes   = [_dp, _ip, _dp]
 _lib.arck4_fit_lmom.argtypes   = [_dp, _dp, _ip, _dp]
 _lib.arck4_fit_aleq.argtypes   = [_dp, _ip, _dp, _ip, _dp, _dp]
 _lib.arck4_fit_nls.argtypes    = [_dp, _dp, _ip, _dp, _dp]
-_lib.arck4_fit_nalr.argtypes   = [_dp, _dp, _ip, _ip, _dp, _ip, _dp, _dp]
+_lib.arck4_fit_nalr.argtypes   = [_dp, _dp, _ip, _ip, _dp, _ip, _dp, _dp, _dp]
+
+def _pcode(p):
+    """The tropical norm is p = inf; the C signals it with any non-positive p."""
+    import math
+    return -1.0 if (isinstance(p,(int,float)) and math.isinf(p) and p > 0) else float(p)
 
 def _vec(v): return (_ct.c_double * len(v))(*[float(t) for t in v])
 
@@ -355,15 +388,17 @@ def k4_runmed(y, w=9):
     y = list(y); out = (_ct.c_double * len(y))()
     _lib.arck4_runmed(_vec(y), _i(len(y)), _i(w), out); return list(out)
 
-def k4_band_model(theta, breaks, nodes=60):
-    """Band arc lengths of a scaled kappa curve and of a data polyline"""
+def k4_band_model(theta, breaks, nodes=60, p=2.0):
+    """Band arc lengths of a scaled kappa curve, under the p-norm (p=inf is the tropical one)"""
     J = len(breaks) - 1; out = (_ct.c_double * J)()
-    _lib.arck4_band_model(_vec(theta), _vec(breaks), _i(J), _i(nodes), out); return list(out)
+    _lib.arck4_band_model(_vec(theta), _vec(breaks), _i(J), _i(nodes), _d1(_pcode(p)), out)
+    return list(out)
 
-def k4_band_sample(x, y, breaks):
-    """Band arc lengths of a scaled kappa curve and of a data polyline"""
+def k4_band_sample(x, y, breaks, p=2.0):
+    """Band arc lengths of a data polyline, under the p-norm (p=inf is the tropical one)"""
     J = len(breaks) - 1; out = (_ct.c_double * J)()
-    _lib.arck4_band_sample(_vec(x), _vec(y), _i(len(x)), _vec(breaks), _i(J), out); return list(out)
+    _lib.arck4_band_sample(_vec(x), _vec(y), _i(len(x)), _vec(breaks), _i(J), _d1(_pcode(p)), out)
+    return list(out)
 
 def k4_readings(theta, grid=4000):
     """The two standard induction-period readings of a fitted kappa curve"""
@@ -387,11 +422,136 @@ def k4_fit_nls(x, y, start):
     out = (_ct.c_double * 7)()
     _lib.arck4_fit_nls(_vec(x), _vec(y), _i(len(x)), _vec(start), out); return list(out)
 
-def k4_fit_nalr(x, y, start, J=12, lam=1.0, w=9):
+def k4_fit_nalr(x, y, start, J=12, lam=1.0, w=9, p=2.0):
     """Deterministic kappa fits: L-moment shape inversion, quantile-domain arc-length shape fit,
     curve-domain NLS and NALR (banded arc lengths of the running-median presmoothed polyline)"""
     out = (_ct.c_double * 7)()
-    _lib.arck4_fit_nalr(_vec(x), _vec(y), _i(len(x)), _i(J), _d1(lam), _i(w), _vec(start), out)
+    _lib.arck4_fit_nalr(_vec(x), _vec(y), _i(len(x)), _i(J), _d1(lam), _i(w),
+                        _d1(_pcode(p)), _vec(start), out)
+    return list(out)
+
+_lib.arceqfit_bc.argtypes = [_dp, _dp, _ip, _dp, _ip, _ip, _ip, _dp, _dp, _ip, _dp, _dp, _dp]
+def eqfit_bc(x, y, starts, curve, maxit=4000):
+    """Beta-companion sigmoid fit (free: 6-column starts; equivalence-constrained: 5-column),
+    deterministic Nelder-Mead in the shared C, two passes per start, best kept.
+    Returns (theta[6], sse, a, b). Same semantics and bytes as the R front."""
+    flat = [float(v) for row in starts for v in row]
+    np_ = len(starts[0]); ns = len(starts)
+    cal = [float(r[0]) for r in curve]; cbe = [float(r[1]) for r in curve]
+    out = (_ct.c_double * 9)()
+    _lib.arceqfit_bc(_vec(x), _vec(y), _i(len(x)), _vec(flat), _i(ns), _i(np_), _i(maxit),
+                     _vec(cal), _vec(cbe), _i(len(cal)), _d1(min(cal)), _d1(max(cal)), out)
+    return list(out[0:6]), out[6], out[7], out[8]
+
+_lib.arceqfit_estsim.argtypes = [_dp, _dp, _ip, _ip, _ip, _ip, _ip, _dp]
+def eqfit_estsim(a0, b0, R, nsizes, seed=4207, maxit=500):
+    """Three-estimator study of the equivalence member: MLE, moments, L-moments, OpenMP over
+    replicates with per-replicate splitmix64 streams. Returns the flat R x 3 x 2 x len(nsizes)
+    array in R's column-major order."""
+    nn = len(nsizes)
+    out = (_ct.c_double * (R * 3 * 2 * nn))()
+    _lib.arceqfit_estsim(_d1(a0), _d1(b0), _i(R), _iv(nsizes), _i(nn), _i(seed), _i(maxit), out)
+    return list(out)
+
+_lib.arceqfit_msim.argtypes = [_ip, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _dp, _ip, _dp, _dp, _dp, _dp]
+def eqfit_msim(nM, sde, Rm, th0, st5, curve, awin, thref, seed=4207, maxit=2000):
+    """The manifold-test simulation of the equivalence paper: four arms (truth, three
+    displacements), two-stage profiled minimisation over the manifold interpolant inside the
+    identifiable nuisance set, truth-arm audit and displaced-arm reference certificates.
+    thref is a 3x4 sequence of (mu, sigma, alpha, beta) reference members. Same bytes as R."""
+    cal = [float(r[0]) for r in curve]; cbe = [float(r[1]) for r in curve]
+    tr = [float(v) for row in thref for v in row]
+    out = (_ct.c_double * (8 * Rm))()
+    _lib.arceqfit_msim(_i(nM), _d1(sde), _i(Rm), _i(seed), _vec(th0), _vec(st5), _i(maxit),
+                       _vec(cal), _vec(cbe), _i(len(cal)), _d1(awin[0]), _d1(awin[1]),
+                       _vec(tr), out)
+    o = list(out)
+    return {k: o[j*Rm:(j+1)*Rm] for j, k in enumerate(
+        ["Tlev","Taud","Tp2","Tp15","Tp4","Tref2","Tref15","Tref4"])}
+
+_lib.arceqfit_nullT.argtypes = [_ip, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _dp, _ip, _dp, _dp, _dp]
+def eqfit_nullT(nM, sde, R2, th0, st5, curve, awin, seed=4207, maxit=2000):
+    """Null draws of the profiled manifold statistic at one member; same bytes as R."""
+    cal = [float(r[0]) for r in curve]; cbe = [float(r[1]) for r in curve]
+    out = (_ct.c_double * R2)()
+    _lib.arceqfit_nullT(_i(nM), _d1(sde), _i(R2), _i(seed), _vec(th0), _vec(st5), _i(maxit),
+                        _vec(cal), _vec(cbe), _i(len(cal)), _d1(awin[0]), _d1(awin[1]), out)
+    return list(out)
+
+_lib.arceqfit_blocklen.argtypes = [_dp, _ip, _ip]
+def eqfit_blocklen(res):
+    """Moving-block length rule of the residual bootstraps: first lag at which the sample
+    autocorrelation enters the 2/sqrt(n) noise band, with an n^(1/3) fallback, floor 2."""
+    out = (_ct.c_int * 1)()
+    _lib.arceqfit_blocklen(_vec(res), _i(len(res)), out)
+    return out[0]
+
+_lib.arceqfit_bsweep.argtypes = [_dp, _ip, _dp, _dp]
+def k4_b_sweep(k, h):
+    """Derivative reading of the standardised kappa member over a k grid at fixed h."""
+    out = (_ct.c_double * len(k))()
+    _lib.arceqfit_bsweep(_vec(k), _i(len(k)), _d1(h), out)
+    return list(out)
+
+_lib.arceqfit_Esweep.argtypes = [_dp, _dp, _ip, _dp]
+def eq_E_sweep(alpha, betas):
+    """Closed-form equivalence discrepancy E over a beta grid at fixed alpha."""
+    out = (_ct.c_double * len(betas))()
+    _lib.arceqfit_Esweep(_d1(alpha), _vec(betas), _i(len(betas)), out)
+    return list(out)
+
+_lib.arck4_mv_boot.argtypes = [_dp, _dp, _ip, _dp, _ip, _ip, _dp, _ip, _dp, _dp]
+def k4_mv_boot(x, y, cut=float("-inf"), B=50, seed=4207, bounds=(-0.98, 0.95, 0.0, 4.0),
+               maxit=1500):
+    """The fitting-method multiverse of one induction run: eight admissible pipelines under one
+    moving-block residual bootstrap, all in the shared C back end. Same pipelines, replicate
+    policy and per-replicate splitmix64 streams as the R front; byte-identical output whatever
+    the thread count. Returns (a_pt, A): the eight point estimates in method order (LS, med9-LS,
+    med21-LS, arc, GEV-LS, transient-excised, grid-odd, grid-even), and B rows of replicate
+    readings (None when B == 0)."""
+    n = len(x)
+    a_pt = (_ct.c_double * 8)()
+    A = (_ct.c_double * (max(1, B) * 8))()
+    _lib.arck4_mv_boot(_vec(x), _vec(y), _i(n),
+                       _d1(cut if cut == cut and cut > float("-inf") else -1e300),
+                       _i(B), _i(seed), _vec(bounds), _i(maxit), a_pt, A)
+    rows = [list(A[r * 8:(r + 1) * 8]) for r in range(B)] if B > 0 else None
+    return list(a_pt), rows
+
+_lib.arck4_fit_varpro.argtypes = [_dp, _dp, _ip, _dp, _ip, _ip, _dp, _dp, _dp]
+def k4_fit_varpro(x, y, starts, maxit=1500, bounds=(-0.98, 0.95, 0.0, 4.0), hfix=None):
+    """Variable-projection fit of the drifted kappa response y = g0 + m x + g1 F(x; mu, sg, k, h).
+    The three coefficients are linear and solve exactly at any shape, so only the four shape
+    parameters are searched, from a grid of starts; the C back end runs the starts in parallel and
+    picks the best serially, so the answer does not depend on the thread count. starts is a sequence
+    of 4-tuples (mu, log sigma, k, log h); bounds is the admissible shape box
+    (k_lo, k_hi, h_lo, h_hi), defaulting to the one the edible-oil analysis settled on.
+    hfix holds h at a given value and fits the other three, which is how the submodels are
+    fitted in their own right: h = 0 is the generalised extreme value distribution and, with
+    k = 0, the Gumbel. Returns (g0, m, g1, mu, sigma, k, h, rss)."""
+    flat = [float(v) for row in starts for v in row]
+    ns = len(flat) // 4
+    if ns * 4 != len(flat):
+        raise ValueError("starts must have four columns: (mu, log sigma, k, log h)")
+    out = (_ct.c_double * 8)()
+    _lib.arck4_fit_varpro(_vec(x), _vec(y), _i(len(x)), _vec(flat), _i(ns), _i(maxit), _vec(bounds),
+                          _vec([-1.0 if hfix is None else float(hfix)]), out)
+    return list(out)
+
+_lib.arck4_band_trop_mean.argtypes = [_dp, _ip, _dp, _dp, _dp, _ip, _dp]
+def k4_band_trop_mean(x, theta, sigma, breaks):
+    """Exact mean of the tropical band arc length under Gaussian error. The max-plus element
+    max(dx,|dy|) has an expectation elementary in Phi and phi, where the Euclidean element's is a
+    confluent hypergeometric; the observed band arc length can therefore be compared with its own
+    mean. Only the mean: consecutive increments share an observation, so a band's variance is not
+    the sum of its elements' variances and summing as if independent understates it by about a
+    fifth."""
+    J = len(breaks) - 1
+    if len(theta) != 6 or J < 1:
+        raise ValueError("theta must have six entries and breaks at least two")
+    out = (_ct.c_double * J)()
+    _lib.arck4_band_trop_mean(_vec(x), _i(len(x)), _vec(theta), _d1(float(sigma)),
+                              _vec(breaks), _i(J), out)
     return list(out)
 
 _lib.arceq_readings.argtypes = [_dp, _dp, _ip, _dp, _ip, _dp]
@@ -447,3 +607,31 @@ def eq_bstar(alpha):
     out = _d1(0.0)
     _lib.arceq2_bstar(_d1(alpha), out)
     return out[0]
+
+def icc_oneway(y, g):
+    """One-way variance components: (icc, sd_within, sd_between).
+
+    Groups may be unequal in size; the between-group mean square is divided by the unbalanced
+    constant k0 = (N - sum n_i^2 / N) / (G - 1), not by the mean group size. A negative
+    between-group variance estimate is truncated at zero.
+    """
+    lab = {}
+    gi = []
+    for v in g:
+        if v not in lab:
+            lab[v] = len(lab)
+        gi.append(lab[v])
+    n = len(y)
+    out = (_ct.c_double * 3)()
+    _lib.arcvc_icc_oneway(_d(y), _i2(gi), _i(n), _i(len(lab)), out)
+    return [out[0], out[1], out[2]]
+
+def locus_dist(h, k, locus_h, locus_k):
+    """Shortest distance in the (h,k) plane from each shape to the locus polyline.
+
+    Measured to the polyline's segments rather than its vertices.
+    """
+    n = len(h)
+    out = (_ct.c_double * n)()
+    _lib.arcvc_locus_dist(_d(h), _d(k), _i(n), _d(locus_h), _d(locus_k), _i(len(locus_h)), out)
+    return list(out)

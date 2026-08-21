@@ -12,9 +12,9 @@ k4_fit_lmom(t3, t4, nodes = 200L)
 
 k4_fit_aleq(y, bands, start = c(0, 0, log(0.3)))
 
-k4_fit_nls(x, y, start)
+k4_fit_nls(x, y, start, drift = FALSE)
 
-k4_fit_nalr(x, y, start, J = 12L, lambda = 1, w = 9L)
+k4_fit_nalr(x, y, start, J = 12L, lambda = 1, w = 9L, p = 2)
 }
 \arguments{
 \item{t3, t4}{target sample L-moment ratios}
@@ -29,11 +29,17 @@ k4_fit_nalr(x, y, start, J = 12L, lambda = 1, w = 9L)
 
 \item{x}{data vector}
 
+\item{drift}{model the slow linear rise of the Rancimat water-trap conductivity,
+\code{y = g0 + m x + g1 F(x)}. Both induction-period readings are invariant to it, so the
+equivalence theory is unaffected and only the fit improves.}
+
 \item{J}{number of curve bands}
 
 \item{lambda}{anchor weight}
 
-\item{w}{running-median window (odd)}
+\item{w}{running-median window}
+
+\item{p}{the norm used for the arc-length element; 2 is the Euclidean default, Inf the tropical}
 }
 \value{
 A list of fitted parameters, whose components depend on which fitting routine

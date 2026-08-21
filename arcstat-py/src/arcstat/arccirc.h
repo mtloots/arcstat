@@ -132,3 +132,8 @@ void arcc_temper_vm_trigmom(const int *p, const double *kappa, const double *mu,
                             const int *nodes, double *out);
 
 #endif
+void arcc_exact_ci(const double *theta, const int *n, const int *B, const int *seed,
+                   const double *cgrid, const int *ng, const int *stat, const int *group,
+                   const double *lev, double *out);
+void arcc_gof(const double *theta, const int *n, const double *c3, const double *mu,
+              const int *B, const int *seed, double *out);

@@ -2,7 +2,8 @@
 binding to a shared C back-end (compiled on first import from the bundled sources; the same sources
 back the R package 'arcstat'). Pure standard library."""
 # goodness of fit
-from ._core import (al_band_model, al_band_sample, al_moments, al_pvalue, al_scale, al_statistic)
+from ._core import (arcc_exact_ci, arcc_gof, al_band_model, al_band_sample, al_moments, al_pvalue, al_scale, al_statistic,
+    icc_oneway, locus_dist)
 # the arcq distribution family and L-moments
 from ._core import (arcq_arclength, arcq_qd, fit_arcq_cf, sample_lmoments)
 # the Bayesian arc-length test
@@ -14,7 +15,7 @@ from ._core import (arcc_Q3, arcc_Q_fr, arcc_admiss, arcc_c3max, arcc_dens3, arc
 # the beta-companion equivalence family
 from ._core import (bc_cdf, bc_pdf, bc_q, eq_E, eq_bstar, eq_readings, eq_readings_vsl, eq_ub_quad)
 # the kappa-4 induction curve
-from ._core import (k4_band_model, k4_band_sample, k4_cdf, k4_fit_aleq, k4_fit_lmom, k4_fit_nalr, k4_fit_nls, k4_pdf, k4_q, k4_readings, k4_runmed, k4_tau34)
+from ._core import (k4_band_model, k4_band_trop_mean, k4_band_sample, k4_cdf, k4_fit_aleq, k4_fit_lmom, k4_fit_nalr, k4_fit_nls, k4_fit_varpro, k4_mv_boot, eqfit_bc, eqfit_blocklen, eqfit_estsim, eqfit_msim, eqfit_nullT, k4_b_sweep, eq_E_sweep, k4_pdf, k4_q, k4_readings, k4_runmed, k4_tau34)
 
 __all__ = [
     "al_band_model",
@@ -61,12 +62,24 @@ __all__ = [
     "eq_ub_quad",
     "fit_arcq_cf",
     "k4_band_model",
+    "k4_band_trop_mean",
     "k4_band_sample",
     "k4_cdf",
     "k4_fit_aleq",
     "k4_fit_lmom",
     "k4_fit_nalr",
     "k4_fit_nls",
+    "k4_fit_varpro",
+    "k4_mv_boot",
+    "arcc_exact_ci",
+    "arcc_gof",
+    "eqfit_bc",
+    "eqfit_blocklen",
+    "eqfit_msim",
+    "eqfit_nullT",
+    "eqfit_estsim",
+    "k4_b_sweep",
+    "eq_E_sweep",
     "k4_pdf",
     "k4_q",
     "k4_readings",

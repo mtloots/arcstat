@@ -43,6 +43,47 @@ jobs:
           working-directory: arcstat
           upload-snapshots: true
 
+  # The Python front carries its OWN copy of the shared C, so it can drift from the R copy
+  # silently. This job checks the Python package on its own terms; parity_sync_guard.sh in the
+  # parity harnesses is what catches drift between the two copies.
+  python:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    name: python (arcstat-py)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install --upgrade pip pytest
+      - name: Run the identity tests
+        working-directory: arcstat-py
+        run: python -m pytest tests -q
+
+  # Cross-front agreement. The harnesses need BOTH fronts, so this job installs R as well; it
+  # proves the two fronts return byte-identical values from the shared C, which neither the R
+  # tests nor the Python tests can show on their own.
+  parity:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    name: parity (R vs Python)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run every parity harness
+        run: |
+          set -e
+          for h in parity_arccirc.sh parity_eq2.sh parity_eqfit.sh parity_k4.sh parity_mv.sh parity_vc.sh; do
+            echo "=== $h"
+            sh "$h" arcstat arcstat-py
+          done
+
   matrix:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.config.os }}

@@ -76,6 +76,17 @@ ang2 <- .C("arcc_rand_fr", unif = as.double(uu2), n = 3000L, pre = as.double(pre
            out = double(3000), PACKAGE = "arcstat")$out
 ff <- fit_arccirc_fr(ang2, nm = 3L, nodes = 1024L)
 p(Re(ff$p)); p(Im(ff$p)); p(c(ff$mu, ff$shrink, as.numeric(ff$admissible)))
+
+## exact confidence interval for |c3|: the reference draws run in C with their own scrambled
+## streams, so the whole inversion must agree between the fronts bit for bit
+uu3 <- (seq_len(400) - 0.5)/400
+thx <- .C("arcc_rand3", unif = as.double(uu3), n = 400L, c3 = as.double(0.45),
+          mu = as.double(1.0), out = double(400))$out
+gg <- arcc_c3max()*(0:20)/20     # built exactly as the Python side builds it
+for (st in c(0L,1L)) for (gp in c(0L,36L)) {
+  rr <- arcc_exact_ci(thx, cgrid=gg, B=49L, stat=st, group=gp, level=0.10, seed=11L)
+  p(c(rr$lower, rr$upper, rr$stat)); p(rr$pcurve)
+}
 ' > "$OUT/r.txt"
 
 # ---- Python side -----------------------------------------------------------------------------------
@@ -87,7 +98,7 @@ th  = [i*(2*math.pi/8) for i in range(9)]
 c3s = [-1.0392304845, -0.6, -0.2, 0, 0.3, 0.75, 1.0392304845]
 unf = [(i+0.5)/20 for i in range(20)]
 def p(xs):
-    for x in xs: print("%.17g" % x)
+    for x in xs: print("NaN" if x != x else "%.17g" % x)
 
 p([c.arcc_c3max()])
 for c3 in c3s:
@@ -125,6 +136,15 @@ ang2 = c.arcc_rand_fr(uu2, pre2, pim2, 0.9, 1024)
 ff = c.arcc_fit_fr(ang2, 3, 0.0, 1024)
 p([z.real for z in ff["p"]]); p([z.imag for z in ff["p"]])
 p([ff["mu"], ff["shrink"], 1.0 if ff["admissible"] else 0.0])
+
+uu3 = [(i+0.5)/400 for i in range(400)]
+thx = c.arcc_rand3(uu3, 0.45, 1.0)
+cm = c.arcc_c3max()
+gg = [cm*i/20 for i in range(21)]
+for st in (0, 1):
+    for gp in (0, 36):
+        rr = c.arcc_exact_ci(thx, gg, B=49, stat=st, group=gp, level=0.10, seed=11)
+        p([rr["lower"], rr["upper"], rr["stat"]]); p(rr["pcurve"])
 ' > "$OUT/py.txt"
 
 # ---- compare ---------------------------------------------------------------------------------------
