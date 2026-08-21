@@ -301,7 +301,12 @@ static double lm_obj(const double *p, const void *vc) {
 void arck4_fit_lmom(const double *t3, const double *t4, const int *nodes, double *out) {
   lm_ctx c = { *t3, *t4, *nodes };
   const double starts[3][2] = { {0.0, 0.3}, {0.2, 0.5}, {-0.2, 0.2} };
-  double bx[2], bf = 1e300;
+  /* NaN-initialised on purpose. bx is written only when fv < bf, so if every start returns a
+     non-finite objective -- NaN compares false against everything -- bx would never be assigned
+     and this would return UNINITIALISED MEMORY as if it were a fit. GCC on Windows caught this
+     (clang on macOS does not warn); with NaN the failure is visible instead of silent, and
+     out[2] carries bf = 1e300 as the corroborating signal. */
+  double bx[2] = { NAN, NAN }, bf = 1e300;
   for (int s = 0; s < 3; s++) {
     double x[2], fv;
     nelder_mead(lm_obj, &c, 2, starts[s], 300, x, &fv);
@@ -344,7 +349,9 @@ void arck4_fit_aleq(const double *ysorted, const int *n, const double *bands,
   double x01[40], w01[40];
   gl01(nodes, x01, w01);
   aq_ctx c = { A, bands, nJ, nodes, x01, w01 };
-  double bx[3], bf = 1e300;
+  /* NaN-initialised for the same reason as arck4_fit_lmom above: assigned only when
+     fv < bf, so a run in which every start fails must report NaN rather than stack garbage. */
+  double bx[3] = { NAN, NAN, NAN }, bf = 1e300;
   const double st2[3][3] = { {0.0, 0.0, -1.2039728043259360},
                              {0.0, 0.3, -0.6931471805599453},
                              {0.3, -0.2, -1.6094379124341003} };
