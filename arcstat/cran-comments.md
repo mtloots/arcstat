@@ -1,8 +1,11 @@
 ## Test environments
 
-* local macOS (arm64), R 4.6.1
-* GitHub Actions, ubuntu-latest, R release
-* `R CMD check --as-cran` on the built tarball
+* local macOS 26 (arm64), R 4.6.1
+* GitHub Actions, R release on ubuntu-latest, macOS-latest and windows-latest
+* GitHub Actions, R devel and R oldrel-1 on ubuntu-latest
+* `R CMD check --as-cran` on the built tarball in every case
+
+All five platform and version combinations pass with no errors and no warnings.
 
 ## R CMD check results
 
