@@ -46,8 +46,28 @@ test_that("CIRCULAR moments: rho factorises and the tempered von Mises is a dens
   ## more -- identical for 0.5, 0.7 and 0.9. That is either the true admissible ceiling of the
   ## degree-one family or a silent clamp, and it is deliberately NOT asserted either way here
   ## until the intended behaviour is confirmed.
-  for (r in c(0.2, 0.5, 0.9)) expect_equal(sum(Mod(factorise_rho(r))^2), 1, tolerance = 1e-10)
-  expect_lt(abs(Mod(trigmom_arccirc_fr(1L, arccirc_fr(factorise_rho(0.2)))) - 0.2), 0.01)
+  ## an admissible request is returned untouched and its coefficients are normalised
+  f2 <- factorise_rho(0.2)
+  expect_named(f2, c("p", "shrink", "admissible"))
+  expect_true(f2$admissible)
+  expect_equal(f2$shrink, 1)
+  expect_equal(sum(Mod(f2$p)^2), 1, tolerance = 1e-10)
+  expect_lt(abs(Mod(trigmom_arccirc_fr(1L, arccirc_fr(f2$p))) - 0.2), 0.01)
+
+  ## rho = 1/2 is the boundary: qmin_rho vanishes there and nothing is shrunk
+  expect_equal(qmin_rho(0.5), 0, tolerance = 1e-09)
+  expect_true(factorise_rho(0.5)$admissible)
+
+  ## beyond it NO factorisation exists. The routine must say so rather than return the
+  ## coefficients of one, and must report the shrink it applied instead.
+  expect_lt(qmin_rho(0.7), 0)
+  expect_warning(f9 <- factorise_rho(0.9), "not admissible")
+  expect_false(f9$admissible)
+  expect_lt(f9$shrink, 1)
+  expect_equal(sum(Mod(f9$p)^2), 1, tolerance = 1e-10)
+  ## the shrink lands exactly on the boundary, which is why every inadmissible request
+  ## produced the same achieved resultant before this was reported
+  expect_equal(0.9 * f9$shrink, 0.5, tolerance = 1e-06)
   ## and the tempered von Mises must integrate to one over the circle
   expect_equal(integrate(function(t) dtemper_vm(t, kappa = 1, mu = 0, s = 1), 0, 2*pi)$value,
                1, tolerance = 1e-06)

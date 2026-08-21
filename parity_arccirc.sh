@@ -69,7 +69,8 @@ el <- lmom_circ(xs, 3L);        p(Re(el)); p(Im(el))
 rr <- rho_from_lmom(el);        p(Re(rr)); p(Im(rr))
 p(qmin_rho(rr, nodes = 1024L))
 ad <- admiss_rho(rr, margin = 0, nodes = 1024L); p(Re(ad$rho)); p(Im(ad$rho)); p(ad$shrink)
-fz <- factorise_rho(rr);        p(Re(fz)); p(Im(fz))
+## factorise_rho now returns p, shrink and admissible; both fronts must agree on all three
+fz <- factorise_rho(rr); p(Re(fz$p)); p(Im(fz$p)); p(fz$shrink); p(as.numeric(fz$admissible))
 uu2 <- (seq_len(3000) - 0.5)/3000
 ang2 <- .C("arcc_rand_fr", unif = as.double(uu2), n = 3000L, pre = as.double(pre2),
            pim = as.double(pim2), np = 3L, mu = as.double(0.9), nodes = 1024L,
@@ -130,7 +131,9 @@ rr = c.arcc_rho_from_lmom(el);  p([z.real for z in rr]); p([z.imag for z in rr])
 p([c.arcc_qmin_rho(rr, 1024)])
 adr, adt = c.arcc_admiss(rr, 0.0, 1024)
 p([z.real for z in adr]); p([z.imag for z in adr]); p([adt])
-fz = c.arcc_factorise(rr);      p([z.real for z in fz]); p([z.imag for z in fz])
+fz = c.arcc_factorise(rr)
+p([z.real for z in fz["p"]]); p([z.imag for z in fz["p"]])
+p([fz["shrink"]]); p([1.0 if fz["admissible"] else 0.0])
 uu2 = [(i+0.5)/3000 for i in range(3000)]
 ang2 = c.arcc_rand_fr(uu2, pre2, pim2, 0.9, 1024)
 ff = c.arcc_fit_fr(ang2, 3, 0.0, 1024)

@@ -9,6 +9,20 @@
  * Pure libm.  Pointer arguments throughout for the .C ABI, so one source
  * compiles under R and under Python via ctypes.  Every loop lives here.
  */
+/* Floating-point contraction is pinned OFF so that the R and Python fronts, which compile this
+   source with different flags, cannot differ in whether multiply-add pairs are fused. Without it
+   the fronts agree to about fifteen digits and disagree in the last bit, which fails the parity
+   harness -- and it surfaces unpredictably, since whether a fusion happens depends on register
+   allocation, so an unrelated edit can expose it. arcstat pins it in every source for the same
+   reason. */
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#elif defined(__GNUC__)
+#pragma GCC optimize ("fp-contract=off")
+#else
+#pragma STDC FP_CONTRACT OFF
+#endif
+
 #include <math.h>
 #include <stdlib.h>
 #ifdef _OPENMP

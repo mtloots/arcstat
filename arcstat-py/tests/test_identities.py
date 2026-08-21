@@ -9,6 +9,7 @@ its own terms rather than only against its twin.
 import math
 import os
 import sys
+import warnings
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 import arcstat as a  # noqa: E402
@@ -95,15 +96,38 @@ def test_quantile_density_is_positive():
     assert all(v > 0 for v in qd)
 
 
-def test_factorise_returns_normalised_coefficients():
-    """The Fejer-Riesz coefficients are normalised. NOTE: the achieved resultant saturates at
-    about 0.4401 for any request of 0.5 or more, so only the small-rho round trip is asserted."""
-    for rho in (0.2, 0.5, 0.9):
-        p = a.arcc_factorise([rho])
-        assert abs(sum(abs(z) ** 2 for z in p) - 1.0) < 1e-10
-    p = a.arcc_factorise([0.2])
-    m1 = a.arcc_trigmom_fr(1, [z.real for z in p], [z.imag for z in p])
-    assert abs(abs(complex(m1[0], m1[1]) if isinstance(m1, (list, tuple)) else m1) - 0.2) < 0.01
+def test_factorise_accepts_an_admissible_spectrum_untouched():
+    f = a.arcc_factorise([0.2])
+    assert f["admissible"] is True
+    assert f["shrink"] == 1.0
+    assert abs(sum(abs(z) ** 2 for z in f["p"]) - 1.0) < 1e-10
+    m1 = a.arcc_trigmom_fr(1, [z.real for z in f["p"]], [z.imag for z in f["p"]])
+    assert abs(abs(m1) - 0.2) < 0.01
+
+
+def test_one_half_is_the_admissibility_boundary():
+    """For a single moment with rho_0 = 1 the spectrum is 1 + 2 rho cos(theta), non-negative
+    exactly while |rho| <= 1/2. arcc_qmin_rho measures that minimum."""
+    assert abs(a.arcc_qmin_rho([0.5])) < 1e-9
+    assert a.arcc_qmin_rho([0.4]) > 0
+    assert a.arcc_qmin_rho([0.7]) < 0
+    assert a.arcc_factorise([0.5])["admissible"] is True
+
+
+def test_factorise_reports_an_inadmissible_spectrum_rather_than_inventing_one():
+    """Beyond the boundary no factorisation exists. The routine must warn, shrink, and say by how
+    much -- not return the coefficients of a factorisation that does not exist."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        f = a.arcc_factorise([0.9])
+        assert len(caught) == 1
+        assert "not admissible" in str(caught[0].message)
+    assert f["admissible"] is False
+    assert f["shrink"] < 1.0
+    assert abs(sum(abs(z) ** 2 for z in f["p"]) - 1.0) < 1e-10
+    # the shrink lands exactly on the boundary, which is why every inadmissible request used to
+    # produce the same achieved resultant with nothing said about it
+    assert abs(0.9 * f["shrink"] - 0.5) < 1e-6
 
 
 def test_tempered_von_mises_is_a_density():

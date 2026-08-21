@@ -7,7 +7,7 @@
 # the two languages hand the C identical bits.
 set -e
 cd "$(dirname "$0")"
-sh parity_sync_guard.sh ellstat ellstat-py/src/ellstat
+sh parity_sync_guard.sh ellstat/src ellstat-py/src/ellstat || exit 1
 
 R_OUT=$(mktemp); PY_OUT=$(mktemp)
 trap 'rm -f "$R_OUT" "$PY_OUT"' EXIT

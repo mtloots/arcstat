@@ -16,7 +16,7 @@ qmin_rho(rho, nodes = 4096L)
 
 admiss_rho(rho, margin = 0, nodes = 4096L)
 
-factorise_rho(rho)
+factorise_rho(rho, margin = 0, nodes = 4096L)
 }
 \arguments{
 \item{x}{observations on the unit interval, obtained by cutting the circle at the mean direction.}
@@ -33,6 +33,10 @@ factorise_rho(rho)
 }
 \value{
 complex vector of length nm.
+
+a list with the coefficient vector \code{p}, the \code{shrink} factor applied to the
+  spectrum (one when nothing was needed), and the \code{admissible} flag for the spectrum AS
+  SUPPLIED.
 }
 \description{
 On the line the L-moments are Legendre projections of the quantile function and are linear in the
@@ -58,5 +62,13 @@ admissible set
 \item \code{admiss_rho()}: shrink a spectrum towards the circular uniform until admissible
 
 \item \code{factorise_rho()}: Fejer-Riesz spectral factorisation, recovering the coefficient vector
+
+A factorisation exists only where the implied quantile density is non-negative, which is what
+\code{qmin_rho} measures; for a single moment with \eqn{\rho_0 = 1} the condition reduces to
+\eqn{|\rho| \le 1/2}. Asked for an inadmissible spectrum this routine used to run the root
+finder anyway and return the coefficients of a factorisation that does not exist, silently and
+at any modulus. It now does what the fitting path in the C back-end has always done: shrink
+towards the circular uniform until the spectrum is admissible, and REPORT that it did, so a
+caller can tell an answer to the question asked from an answer to a nearby one.
 
 }}

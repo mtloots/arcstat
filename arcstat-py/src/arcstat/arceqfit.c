@@ -10,6 +10,19 @@
  * outputs are byte-identical across thread counts and between the fronts.
  */
 
+/* Floating-point contraction is pinned OFF so that the R and Python fronts, which compile these
+   sources with different flags, cannot differ in whether multiply-add pairs are fused. Without
+   this the two fronts agree to about fifteen digits and disagree in the last bit, which is enough
+   to fail the parity harnesses -- and it surfaces unpredictably, because whether a fusion happens
+   depends on register allocation, so an unrelated edit can expose it. */
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#elif defined(__GNUC__)
+#pragma GCC optimize ("fp-contract=off")
+#else
+#pragma STDC FP_CONTRACT OFF
+#endif
+
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>

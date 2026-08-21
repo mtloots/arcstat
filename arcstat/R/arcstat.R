@@ -672,12 +672,35 @@ admiss_rho <- function(rho, margin = 0, nodes = 4096L) {
 }
 
 #' @describeIn lmom_circ Fejer-Riesz spectral factorisation, recovering the coefficient vector
+#'
+#' A factorisation exists only where the implied quantile density is non-negative, which is what
+#' \code{qmin_rho} measures; for a single moment with \eqn{\rho_0 = 1} the condition reduces to
+#' \eqn{|\rho| \le 1/2}. Asked for an inadmissible spectrum this routine used to run the root
+#' finder anyway and return the coefficients of a factorisation that does not exist, silently and
+#' at any modulus. It now does what the fitting path in the C back-end has always done: shrink
+#' towards the circular uniform until the spectrum is admissible, and REPORT that it did, so a
+#' caller can tell an answer to the question asked from an answer to a nearby one.
+#' @return a list with the coefficient vector \code{p}, the \code{shrink} factor applied to the
+#'   spectrum (one when nothing was needed), and the \code{admissible} flag for the spectrum AS
+#'   SUPPLIED.
 #' @export
-factorise_rho <- function(rho) {
+factorise_rho <- function(rho, margin = 0, nodes = 4096L) {
+  adm    <- qmin_rho(rho, nodes) >= 0
+  shrink <- 1
+  if (!adm) {
+    a <- admiss_rho(rho, margin, nodes)
+    rho <- a$rho; shrink <- a$shrink
+    warning("spectrum is not admissible: no Fejer-Riesz factorisation exists for it, so it was ",
+            "shrunk towards the circular uniform by a factor of ", format(shrink, digits = 6),
+            ". The returned coefficients describe the SHRUNKEN spectrum, not the one supplied.",
+            call. = FALSE)
+  }
   nm <- length(rho)
   o <- .C(C_arcc_factorise, rhore = as.double(Re(rho)), rhoim = as.double(Im(rho)),
           nm = as.integer(nm), out = double(2 * (nm + 1)))$out
-  complex(real = o[seq(1, 2 * (nm + 1), by = 2)], imaginary = o[seq(2, 2 * (nm + 1), by = 2)])
+  list(p = complex(real = o[seq(1, 2 * (nm + 1), by = 2)],
+                   imaginary = o[seq(2, 2 * (nm + 1), by = 2)]),
+       shrink = shrink, admissible = adm)
 }
 
 #' Closed-form fit of the Fejer-Riesz circular arc-length family

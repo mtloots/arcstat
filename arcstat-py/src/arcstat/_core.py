@@ -1,7 +1,8 @@
 """arcstat: Python (ctypes) binding to the shared arc-length C back-end. Pure standard library.
 The three bundled C sources (goodness of fit, distributions, Bayesian test) are compiled together on
 first import; the same sources back the R package 'arcstat'."""
-import ctypes as _ct, os as _os
+import ctypes as _ct
+import warnings as _warnings, os as _os
 _here = _os.path.dirname(_os.path.abspath(__file__))
 _ext = "dylib" if _os.uname().sysname == "Darwin" else "so"
 _libpath = _os.path.join(_here, "libarcstat." + _ext)
@@ -311,12 +312,32 @@ def arcc_admiss(rho, margin=0.0, nodes=4096):
                      _d1(margin), _i(nodes), out)
     return [complex(out[2*m], out[2*m+1]) for m in range(nm)], out[2*nm]
 
-def arcc_factorise(rho):
-    """Circular L-moments. Binding to the C routine arcc_factorise; the R front calls this
-    factorise_rho()."""
+def arcc_factorise(rho, margin=0.0, nodes=4096):
+    """Fejer-Riesz spectral factorisation. The R front calls this factorise_rho().
+
+    A factorisation exists only where the implied quantile density is non-negative, which
+    arcc_qmin_rho measures; for a single moment with rho_0 = 1 that reduces to |rho| <= 1/2.
+    Asked for an inadmissible spectrum this used to run the root finder anyway and return the
+    coefficients of a factorisation that does not exist, silently and at any modulus. It now does
+    what the fitting path in the C back end has always done: shrink towards the circular uniform
+    until the spectrum is admissible, and REPORT that it did.
+
+    Returns {"p": coefficients, "shrink": factor applied (1.0 if none), "admissible": whether the
+    spectrum AS SUPPLIED was admissible}, mirroring the R front's list.
+    """
+    admissible = arcc_qmin_rho(rho, nodes) >= 0.0
+    shrink = 1.0
+    if not admissible:
+        rho, shrink = arcc_admiss(rho, margin, nodes)
+        _warnings.warn(
+            "spectrum is not admissible: no Fejer-Riesz factorisation exists for it, so it was "
+            "shrunk towards the circular uniform by a factor of %.6g. The returned coefficients "
+            "describe the SHRUNKEN spectrum, not the one supplied." % shrink,
+            RuntimeWarning, stacklevel=2)
     nm = len(rho); out = (_ct.c_double * (2*(nm+1)))()
     _lib.arcc_factorise(_d([r.real for r in rho]), _d([r.imag for r in rho]), _i(nm), out)
-    return [complex(out[2*j], out[2*j+1]) for j in range(nm+1)]
+    return {"p": [complex(out[2*j], out[2*j+1]) for j in range(nm+1)],
+            "shrink": shrink, "admissible": admissible}
 
 def arcc_fit_fr(theta, nm, margin=0.0, nodes=4096):
     """Closed-form fit of the Fejer-Riesz circular arc-length family. Binding to the C routine
