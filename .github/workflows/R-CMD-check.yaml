@@ -76,6 +76,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # The harnesses call library(arcstat) on the R side, so the package has to be INSTALLED,
+      # not merely checked out. CI found this on 21 Aug 2026: "there is no package called
+      # 'arcstat'". The Python front needs no install step -- it compiles its own library on
+      # first import, which is what the sync guard's rebuild note refers to.
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: arcstat
+      - name: Install the R package
+        run: R CMD INSTALL arcstat
       - name: Run every parity harness
         run: |
           set -e

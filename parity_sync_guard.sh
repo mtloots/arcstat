@@ -32,16 +32,24 @@ for rc in "$RDIR"/*.c "$RDIR"/*.h; do
   [ -n "$pc" ] || continue
   cmp -s "$rc" "$pc" || drift="$drift $b"
 done
-find "$PYDIR" -name "libarcstat.*" -not -path "*Rcheck*" -print0 2>/dev/null |
-while IFS= read -r -d "" lib; do          # -print0 and -d "": these paths contain spaces
-  for rc in "$RDIR"/*.c "$RDIR"/*.h; do
-    [ -e "$rc" ] || continue
-    if [ "$rc" -nt "$lib" ]; then
-      echo "NOTE: removing $(basename "$lib"), older than $(basename "$rc"); import will rebuild it"
-      rm -f "$lib"; break
-    fi
-  done
-done
+# `read -d ""` is a bash extension, and this script declares #!/bin/sh. On macOS sh is bash in
+# posix mode so it worked locally, but on Ubuntu sh is dash and the harness died with
+# "read: Illegal option -d" -- which CI found on 21 Aug 2026. find -exec is POSIX and still safe
+# for the paths with spaces the original -print0 was chosen to handle, because find passes each
+# path as a single argument with no word splitting.
+# The library glob is lib*, not libarcstat*: this guard is shared, and parity_ellstat.sh points
+# it at the ellstat front, whose library is libellstat.
+find "$PYDIR" \( -name "lib*.so" -o -name "lib*.dylib" \) -not -path "*Rcheck*" \
+     -exec sh -c '
+       lib="$1"; RDIR="$2"
+       for rc in "$RDIR"/*.c "$RDIR"/*.h; do
+         [ -e "$rc" ] || continue
+         if [ "$rc" -nt "$lib" ]; then
+           echo "NOTE: removing $(basename "$lib"), older than $(basename "$rc"); import will rebuild it"
+           rm -f "$lib"; break
+         fi
+       done
+     ' sh {} "$RDIR" \; 2>/dev/null
 
 if [ -n "$drift" ]; then
   echo "VERDICT: OUT OF SYNC --$drift"
