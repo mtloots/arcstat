@@ -30,7 +30,7 @@ for _nm, _at in {
     "C_ell_evm_pop":    [_dp, _dp, _dp, _ip, _ip, _dp],
     "C_ell_evm_fit":    [_dp, _ip, _dp, _ip, _ip, _dp],
     "C_ell_exact_unif": [_dp, _ip, _dp, _ip, _dp, _dp],
-    "C_ell_exact_ci":   [_dp, _ip, _dp, _dp, _ip, _ip, _dp, _dp, _ip, _dp],
+    "C_ell_exact_ci":   [_dp, _ip, _dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _dp],
     "C_ell_effstudy":   [_dp, _dp, _ip, _ip, _ip, _dp, _dp],
     "C_ell_pj_dens":    [_dp, _ip, _dp, _dp, _dp, _ip, _dp],
     "C_ell_pj_rand":    [_ip, _dp, _dp, _dp, _dp, _dp],
@@ -144,23 +144,40 @@ def ell_exact_uniform(t, k=0.9, B=999, seed=1):
                           _ct.byref(_i(B)), _ct.byref(_d(seed)), out)
     return {"statistic": out[0], "p_value": out[1]}
 
-def ell_exact_ci(t, k=0.9, kgrid=None, B=499, level=0.05, seed=1, ng=512):
-    """Exact confidence interval for the concentration by test inversion."""
+def ell_exact_ci(t, k=0.9, kgrid=None, B=499, level=0.05, seed=1, ng=512, nmu=8):
+    """Exact confidence interval for the concentration by test inversion.
+
+    *** ARGUMENT LIST FIXED 21 Aug 2026. *** C_ell_exact_ci takes ELEVEN parameters; this front
+    passed ten, omitting nmu. The C therefore read the output pointer as `int *nmu` and wrote its
+    results through whatever followed -- a wild write, so this routine had never worked from
+    Python and segfaulted the interpreter. The R front passes nmu = 8L and was correct. The
+    allocation, 3 + ngr, was right all along; only the argument list was short.
+    """
     if kgrid is None:
         kgrid = [0.05 + (10.0 - 0.05) * i / 59.0 for i in range(60)]
     ts = _d(t); kg = _d(kgrid); ngr = len(kgrid); out = _o(3 + ngr)
     _lib.C_ell_exact_ci(ts, _ct.byref(_i(len(ts))), _ct.byref(_d(k)), kg,
                         _ct.byref(_i(ngr)), _ct.byref(_i(B)), _ct.byref(_d(level)),
-                        _ct.byref(_d(seed)), _ct.byref(_i(ng)), out)
+                        _ct.byref(_d(seed)), _ct.byref(_i(ng)), _ct.byref(_i(nmu)), out)
     return {"lower": out[0], "upper": out[1], "statistic": out[2],
             "curve": list(zip(list(kgrid), list(out)[3:]))}
 
 def ell_efficiency(k, kappa=3.0, n=250, R=2000, ng=1024, seed=1):
-    """Matched-modulus efficiency: (eta, var_trig, var_elliptic, gain)."""
-    out = _o(3)
+    """Matched-modulus efficiency.
+
+    Returns (eta, var_trig, var_elliptic, gain, solved_trig, solved_elliptic), matching the R
+    front's named vector.
+
+    *** BUFFER SIZE FIXED 21 Aug 2026. *** C_ell_effstudy writes out[0] through out[4], five
+    doubles, and this allocated THREE -- a sixteen-byte heap overflow on every call. The R front
+    allocates double(5) and was correct. It did not crash at the call site: it corrupted the heap
+    and brought the interpreter down later, which is why it survived until a test suite made
+    several calls in one process. Any change to what the C writes must be matched here.
+    """
+    out = _o(5)
     _lib.C_ell_effstudy(_ct.byref(_d(k)), _ct.byref(_d(kappa)), _ct.byref(_i(n)),
                         _ct.byref(_i(R)), _ct.byref(_i(ng)), _ct.byref(_d(seed)), out)
-    return out[0], out[1], out[2], out[1] / out[2]
+    return out[0], out[1], out[2], out[1] / out[2], out[3], out[4]
 
 def dprojell(t, tau=0.3, d=0.6, beta=2.0, ng=400):
     """Density of the projected family (offset ellipse, generalised gamma scale)."""
@@ -223,6 +240,19 @@ def ell_projfam_eff(tau=1.0, d=1.0, family="normal", kgrid=None, nt=4096, eps=1e
                            kg, _ct.byref(_i(ngr)), _ct.byref(_i(nt)),
                            _ct.byref(_d(eps)), out)
     return {"efficiency": list(out)[:ngr], "fisher": out[ngr], "mass": out[ngr + 1]}
+
+def ell_projfam_kopt(tau=1.0, d=1.0, family="normal", nt=4096, eps=1e-4):
+    """The modulus that maximises efficiency for a cited projected family, and that efficiency.
+
+    The R front has exported this since the package was written; the Python binding was simply
+    never added, even though the C entry point is compiled into this library and its argtypes
+    were already declared above. Returns (k, efficiency), matching R's named vector.
+    """
+    w = 0 if family == "normal" else 1
+    out = _o(2)
+    _lib.C_ell_projfam_kopt(_ct.byref(_d(tau)), _ct.byref(_d(d)), _ct.byref(_i(w)),
+                            _ct.byref(_i(nt)), _ct.byref(_d(eps)), out)
+    return out[0], out[1]
 
 def ell_catalogue(family, p1, p2=1.0, order=1, kgrid=None, nt=4096, eps=1e-4):
     """The catalogue of circular distributions, after Hosking's table."""

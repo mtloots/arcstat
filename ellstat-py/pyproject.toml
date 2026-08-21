@@ -17,3 +17,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 ellstat = ["*.c", "*.h"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

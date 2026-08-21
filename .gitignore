@@ -10,3 +10,5 @@ dist/
 build/
 *.egg-info/
 .pytest_cache/
+*.gcda
+*.gcno
