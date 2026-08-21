@@ -12,3 +12,4 @@ build/
 .pytest_cache/
 *.gcda
 *.gcno
+graphify-out/
