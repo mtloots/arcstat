@@ -1,18 +1,70 @@
-"""ellstat: Python (ctypes) binding to the shared elliptic-moment C back-end.
+"""ellstat: Python (ctypes) binding to the shared arc-length C back-end. Pure standard library.
 
-Pure standard library. The bundled C source is compiled on first import; the same
-source backs the R package 'ellstat', so the two fronts compute bit-identical
-values. Counts are pushed as int and seeds as double on both sides, which is what
-makes that identity hold across the .C ABI."""
-import ctypes as _ct, os as _os
+The same C sources back the R package 'ellstat'; parity harnesses in the repository require every
+exported quantity to agree byte for byte between the two front ends.
+
+LOADING, and why it has two paths. An INSTALLED package carries a library that pip built at
+install time from setup.py -- no compiler is needed here and nothing is written to disk. A
+SOURCE CHECKOUT has the .c files but no built library, so it is compiled on demand into a cache
+directory to keep the edit-a-C-file-and-re-import development loop working. The previous version
+compiled on every fresh import AND wrote into its own site-packages directory, which fails on
+read-only installs and needs a compiler at import rather than install.
+"""
+import ctypes as _ct
+import glob as _glob
+import os as _os
+import sys as _sys
+import warnings as _warnings
 
 _here = _os.path.dirname(_os.path.abspath(__file__))
-_ext = "dylib" if _os.uname().sysname == "Darwin" else "so"
-_libpath = _os.path.join(_here, "libellstat." + _ext)
-if not _os.path.exists(_libpath):
+
+def _find_built():
+    """A library placed beside this file by pip at install time."""
+    pats = ("_libellstat*.so", "_libellstat*.dylib", "_libellstat*.pyd", "_libellstat*.dll")
+    for pat in pats:
+        hits = sorted(_glob.glob(_os.path.join(_here, pat)))
+        if hits:
+            return hits[0]
+    return None
+
+def _cache_dir():
+    """Somewhere writable, preferring the package directory only if it actually is."""
+    if _os.access(_here, _os.W_OK):
+        return _here
+    base = _os.environ.get("XDG_CACHE_HOME") or _os.path.join(_os.path.expanduser("~"), ".cache")
+    d = _os.path.join(base, "ellstat")
+    _os.makedirs(d, exist_ok=True)
+    return d
+
+def _compile_from_source():
+    """Development fallback: build the bundled sources. Never reached in an installed package."""
     import subprocess as _sp
-    _sp.check_call(["cc", "-O2", "-fPIC", "-shared", "-I", _here,
-                    _os.path.join(_here, "ellstat.c"), "-lm", "-o", _libpath])
+    srcs = sorted(f for f in _glob.glob(_os.path.join(_here, "*.c"))
+                  if _os.path.basename(f) != "init.c")
+    if not srcs:
+        return None
+    ext = "dll" if _sys.platform == "win32" else ("dylib" if _sys.platform == "darwin" else "so")
+    out = _os.path.join(_cache_dir(), "libellstat." + ext)
+    cc = _os.environ.get("CC") or "cc"
+    try:
+        _sp.check_call([cc, "-O2", "-fPIC", "-shared", "-I", _here] + srcs + ["-lm", "-o", out])
+    except (OSError, _sp.CalledProcessError) as exc:
+        raise ImportError(
+            "ellstat could not build its C back-end from the bundled sources (%s). "
+            "In an installed copy this should never happen -- pip builds the library at install "
+            "time. In a source checkout, a C compiler is required; set CC if it is not 'cc'." % exc
+        )
+    return out
+
+_libpath = _find_built()
+if _libpath is None:
+    _cached = _os.path.join(_cache_dir(), "libellstat." +
+                            ("dll" if _sys.platform == "win32" else
+                             "dylib" if _sys.platform == "darwin" else "so"))
+    _libpath = _cached if _os.path.exists(_cached) else _compile_from_source()
+if _libpath is None:
+    raise ImportError("ellstat: no compiled back-end and no C sources to build one from.")
+
 _lib = _ct.CDLL(_libpath)
 _dp, _ip = _ct.POINTER(_ct.c_double), _ct.POINTER(_ct.c_int)
 

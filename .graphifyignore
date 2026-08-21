@@ -1,0 +1,14 @@
+# The Python fronts carry their OWN copy of every C source by design, and the .Rcheck trees are
+# build output. Both are mirrors: left in, each C routine appears two or three times and every
+# query returns duplicates. Exclude the copies and keep the R package sources as the single truth;
+# the parity harnesses are what verify the copies agree.
+arcstat-py/src/arcstat/*.c
+arcstat-py/src/arcstat/*.h
+ellstat-py/src/ellstat/*.c
+ellstat-py/src/ellstat/*.h
+*.Rcheck/
+graphify-out/
+dist/
+*.egg-info/
+__pycache__/
+.git/
