@@ -89,11 +89,14 @@ typedef struct { const double *x, *y; int n; double *Fbuf; const double *bnd;
  * numerical one: on the edible oils a wider k lowered the residual sum of squares yet moved
  * the induction periods away from the laboratory values, so the caller must state it. */
 
-/* objective over the shape: p = (mu, log sigma, k, log h) */
+/* objective over the shape: p = (mu, log sigma, k, h). h is searched DIRECTLY, not on
+ * the log scale: the negative half-line holds real members (the log-logistic of the
+ * collaborating laboratory at h = -1, the Burr III / 5PL slice at h = -1/m), and the
+ * 26 Aug 2026 audit found oils that genuinely prefer it. h = 0 (GEV) is now interior. */
 static double vp_obj(const double *p, void *vc) {
   vp_ctx *c = (vp_ctx *)vc;
   double mu = p[0], sg = exp(p[1]), k = p[2];
-  double h = c->hfix ? c->hval : exp(p[3]);
+  double h = c->hfix ? c->hval : p[3];
   if (!isfinite(sg) || sg <= 0.0 ||
       k < c->bnd[0] || k > c->bnd[1] || h < c->bnd[2] || h > c->bnd[3]) return 1e12;
   for (int i = 0; i < c->n; i++) {
@@ -156,14 +159,11 @@ static void nmd(double (*f)(const double *, void *), void *ctx, const double *st
 
 /* starts is nstart x 4, row major: (mu, log sigma, k, log h).
  * bounds is (k_lo, k_hi, h_lo, h_hi). out receives (g0, m, g1, mu, sigma, k, h, rss). */
-/* hfix < 0 asks for the free four-parameter fit. hfix >= 0 holds h at that value and searches the
- * other three, which is how the SUBMODELS of the family are fitted in their own right: h = 0 is the
- * generalised extreme value distribution and, with k = 0, the Gumbel. That distinction cannot be
- * left to the free search, because h is searched on the log scale and the boundary therefore lies at
- * minus infinity: the optimiser creeps toward it and reports a spurious small h rather than naming
- * the submodel it has effectively chosen. Which of the two fits to report is a model-selection
- * question -- the free model is the larger of a nested pair and can never fit worse -- and it is
- * deliberately left to the caller rather than settled by a tolerance buried here. */
+/* hfix = NaN asks for the free four-parameter fit; any finite hfix holds h at that value and
+ * searches the other three, which is how named SUBMODELS are fitted in their own right: h = 0 is
+ * the generalised extreme value distribution (now an interior point of the free search, since h is
+ * carried directly rather than on the log scale), h = -1 the log-logistic of the collaborating
+ * laboratory. Starts carry h in column four directly. */
 void arck4_fit_varpro(const double *x, const double *y, const int *n, const double *starts,
                       const int *nstart, const int *maxit, const double *bounds,
                       const double *hfix, double *out) {
@@ -180,7 +180,7 @@ void arck4_fit_varpro(const double *x, const double *y, const int *n, const doub
     double *Fb = (double *)malloc((size_t)N * sizeof(double));
     if (Fb) {
       vp_ctx c; c.x = x; c.y = y; c.n = N; c.Fbuf = Fb; c.bnd = bounds;
-      c.hfix = (*hfix >= 0.0); c.hval = *hfix;
+      c.hfix = isfinite(*hfix); c.hval = *hfix;   /* NaN = free fit */
       int dsr = c.hfix ? 3 : 4;    /* with h held, only the other three are searched */
 #ifdef _OPENMP
 #pragma omp for schedule(static)
@@ -200,7 +200,7 @@ void arck4_fit_varpro(const double *x, const double *y, const int *n, const doub
   for (int s = 0; s < S; s++) if (bestf[s] < fb) { fb = bestf[s]; ib = s; }
   if (ib < 0) { out[7] = HUGE_VAL; free(bestp); free(bestf); return; }
   double mu = bestp[ib*4+0], sg = exp(bestp[ib*4+1]), k = bestp[ib*4+2];
-  double h = (*hfix >= 0.0) ? *hfix : exp(bestp[ib*4+3]);
+  double h = isfinite(*hfix) ? *hfix : bestp[ib*4+3];
   double *Fb = (double *)malloc((size_t)N * sizeof(double));
   double beta[3] = {0,0,0}; double rss = HUGE_VAL;
   if (Fb) {

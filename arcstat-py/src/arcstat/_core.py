@@ -594,18 +594,21 @@ def k4_fit_varpro(x, y, starts, maxit=1500, bounds=(-0.98, 0.95, 0.0, 4.0), hfix
     The three coefficients are linear and solve exactly at any shape, so only the four shape
     parameters are searched, from a grid of starts; the C back end runs the starts in parallel and
     picks the best serially, so the answer does not depend on the thread count. starts is a sequence
-    of 4-tuples (mu, log sigma, k, log h); bounds is the admissible shape box
-    (k_lo, k_hi, h_lo, h_hi), defaulting to the one the edible-oil analysis settled on.
-    hfix holds h at a given value and fits the other three, which is how the submodels are
-    fitted in their own right: h = 0 is the generalised extreme value distribution and, with
-    k = 0, the Gumbel. Returns (g0, m, g1, mu, sigma, k, h, rss)."""
+    of 4-tuples (mu, log sigma, k, h) -- h is carried DIRECTLY, not on the log scale, so negative
+    values are admissible; bounds is the admissible shape box (k_lo, k_hi, h_lo, h_hi), defaulting
+    to the one the edible-oil analysis settled on.
+    hfix=None asks for the free four-parameter fit. Any finite hfix holds h at that value and fits
+    the other three, which is how the named submodels are fitted in their own right: h = 0 is the
+    generalised extreme value distribution, now an INTERIOR point of the free search rather than a
+    boundary at minus infinity, and with k = 0 the Gumbel; h = -1 is the log-logistic.
+    Returns (g0, m, g1, mu, sigma, k, h, rss)."""
     flat = [float(v) for row in starts for v in row]
     ns = len(flat) // 4
     if ns * 4 != len(flat):
-        raise ValueError("starts must have four columns: (mu, log sigma, k, log h)")
+        raise ValueError("starts must have four columns: (mu, log sigma, k, h)")
     out = (_ct.c_double * 8)()
     _lib.arck4_fit_varpro(_vec(x), _vec(y), _i(len(x)), _vec(flat), _i(ns), _i(maxit), _vec(bounds),
-                          _vec([-1.0 if hfix is None else float(hfix)]), out)
+                          _vec([float('nan') if hfix is None else float(hfix)]), out)
     return list(out)
 
 _lib.arck4_band_trop_mean.argtypes = [_dp, _ip, _dp, _dp, _dp, _ip, _dp]

@@ -97,7 +97,7 @@ static int mv_starts(const double *x, const double *y, int n, double *st /* <= 1
   for (int a = 0; a < nm; a++) for (int b = 0; b < 3; b++)
     for (int c = 0; c < 5; c++) for (int d = 0; d < 4; d++) {
       st[s * 4 + 0] = m0[a]; st[s * 4 + 1] = log(sg0 * fz[b]);
-      st[s * 4 + 2] = k0[c]; st[s * 4 + 3] = log(h0[d]); s++;
+      st[s * 4 + 2] = k0[c]; st[s * 4 + 3] = h0[d]; s++;   /* h directly, not log h */
     }
   return s;
 }
@@ -115,7 +115,7 @@ static double mv_read_a(const double *vout) {
 /* pipeline 1/6/7/8: free fit vs GEV submodel, decided as the paper's primary fit decides */
 static double mv_fit_sel(const double *x, const double *y, int n, const double *starts,
                          int ns, int maxit, const double *bounds) {
-  double hfree = -1.0, hgev = 0.0, of[8], og[8];
+  double hfree = NAN, hgev = 0.0, of[8], og[8];   /* NaN = free fit under the new sentinel */
   arck4_fit_varpro(x, y, &n, starts, &ns, &maxit, bounds, &hfree, of);
   arck4_fit_varpro(x, y, &n, starts, &ns, &maxit, bounds, &hgev, og);
   int fok = isfinite(of[7]) && of[7] < HUGE_VAL, gok = isfinite(og[7]) && og[7] < HUGE_VAL;
@@ -199,7 +199,7 @@ void arck4_mv_boot(const double *x, const double *y, const int *n, const double 
   if (!ns) { free(starts); return; }
 
   /* base fit: the paper's primary least-squares selection on the full grid of starts */
-  double hfree = -1.0, hgev = 0.0, of[8], og[8];
+  double hfree = NAN, hgev = 0.0, of[8], og[8];   /* NaN = free fit under the new sentinel */
   arck4_fit_varpro(x, y, &N, starts, &ns, &MI, bounds, &hfree, of);
   arck4_fit_varpro(x, y, &N, starts, &ns, &MI, bounds, &hgev, og);
   int fok = isfinite(of[7]) && of[7] < HUGE_VAL;

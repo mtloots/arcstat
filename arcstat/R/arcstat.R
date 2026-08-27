@@ -1199,7 +1199,7 @@ k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
 #' searched; the multi-start is run in the C back end, in parallel over starts, and the best is
 #' chosen serially so the answer does not depend on the thread count.
 #' @param x,y the curve.
-#' @param starts a matrix with four columns, \code{(mu, log sigma, k, log h)}, one row per start.
+#' @param starts a matrix with four columns, \code{(mu, log sigma, k, h)}, one row per start; h is carried directly so negative values are admissible.
 #' @param maxit iterations per Nelder-Mead descent.
 #' @param bounds admissible shape box \code{c(k_lo, k_hi, h_lo, h_hi)}. The default lower bound on
 #'   \eqn{k} is the one the edible-oil analysis settled on: a wider box lowers the residual sum of
@@ -1219,11 +1219,15 @@ k4_fit_varpro <- function(x, y, starts, maxit = 1500L,
                           bounds = c(-0.98, 0.95, 0, 4), hfix = NA_real_) {
   starts <- as.matrix(starts)
   stopifnot(ncol(starts) == 4L, length(bounds) == 4L,
-            bounds[1] < bounds[2], bounds[3] < bounds[4], bounds[3] >= 0)
+            bounds[1] < bounds[2], bounds[3] < bounds[4])
+  ## h is searched directly (column four of starts holds h itself, not log h): the negative
+  ## half-line carries real members -- the log-logistic at h = -1, the Burr III / 5PL slice at
+  ## h = -1/m -- and h = 0 (GEV) is interior. hfix = NA asks for the free fit; any finite value,
+  ## including negative ones, holds h there.
   r <- .C("arck4_fit_varpro", as.double(x), as.double(y), as.integer(length(x)),
           as.double(t(starts)), as.integer(nrow(starts)), as.integer(maxit),
-          as.double(bounds), as.double(if (is.na(hfix)) -1 else hfix),
-          out = double(8))$out
+          as.double(bounds), as.double(hfix),
+          out = double(8), NAOK = TRUE)$out
   list(theta = c(r[1], r[3], r[4], r[5], r[6], r[7]), drift = r[2], rss = r[8])
 }
 
