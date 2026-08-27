@@ -7,3 +7,4 @@
 ^docs$
 ^cran-comments\.md$
 ^src/.*\.gc(da|no)$
+^.*\.bak.*$
