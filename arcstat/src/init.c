@@ -94,4 +94,12 @@ static const R_CMethodDef CEntries[] = {
 void R_init_arcstat(DllInfo *dll) {
   R_registerRoutines(dll, CEntries, NULL, NULL, NULL);
   R_useDynamicSymbols(dll, FALSE);
+  /* Quantile-family routines made callable from dependent packages' C, through
+   * inst/include/arcstatAPI.h. Additive: nothing above changes, and no numerics are affected.
+   * Dynamic symbol lookup stays disabled, which is why the registration is explicit. */
+  R_RegisterCCallable("arcstat", "arck4_q",         (DL_FUNC) &arck4_q);
+  R_RegisterCCallable("arcstat", "arck4_tau34",     (DL_FUNC) &arck4_tau34);
+  R_RegisterCCallable("arcstat", "arck4_fit_lmom",  (DL_FUNC) &arck4_fit_lmom);
+  R_RegisterCCallable("arcstat", "arceq2_bc_q",     (DL_FUNC) &arceq2_bc_q);
+  R_RegisterCCallable("arcstat", "arceq2_bc_pdf",   (DL_FUNC) &arceq2_bc_pdf);
 }

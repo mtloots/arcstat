@@ -1,5 +1,12 @@
 # arcstat (development)
 
+* The quantile-family routines `arck4_q()`, `arck4_tau34()`, `arck4_fit_lmom()`,
+  `arceq2_bc_q()` and `arceq2_bc_pdf()` are now registered as C callables and
+  declared in `inst/include/arcstatAPI.h`, so a dependent package can call them
+  from its own C rather than through R. The registration is additive: nothing
+  already exported changes, no numerics are affected, and dynamic symbol lookup
+  stays disabled, which is why each entry point is registered explicitly.
+
 * `arck4_readings()` now requires the density's grid maximum to be INTERIOR before
   reporting a mode. For `k >= 1` with `h < 1` both terms of
   `(log q)'(u) = (h-1)/u - (k-1) h u^(h-1)/(1-u^h)` are negative, so the quantile

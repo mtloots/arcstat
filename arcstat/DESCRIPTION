@@ -1,7 +1,7 @@
 Package: arcstat
 Type: Package
 Title: Arc-Length Statistics: Goodness of Fit, Distributions and a Bayesian Test
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: person("M. Theodor", "Loots", role = c("aut", "cre"), email = "theo.loots@gmail.com",
                     comment = c(ORCID = "0000-0001-7722-3913"))
 Description: Inference from the arc length of statistical functions. Three tools share one pure-C
