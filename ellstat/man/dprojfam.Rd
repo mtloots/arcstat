@@ -16,6 +16,10 @@ dprojfam(t, tau = 1, d = 1, family = c("normal", "cauchy"))
 \item{family}{"normal" for the projected (offset) normal, "cauchy" for the
 projected Cauchy}
 }
+\value{
+A numeric vector of the same length as \code{t}, the projected-family density
+  evaluated at each angle.
+}
 \description{
 Density of a cited projected family
 }

@@ -15,6 +15,10 @@ ell_exact_uniform(t, k = 0.9, B = 999L, seed = 1L)
 
 \item{seed}{stream seed}
 }
+\value{
+A list of two numbers: \code{statistic}, the observed test statistic, and
+  \code{p.value}, its exact p-value under uniformity.
+}
 \description{
 The rank p-value is exact for every sample size and every B.
 }

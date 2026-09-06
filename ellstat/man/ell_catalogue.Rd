@@ -35,6 +35,11 @@ exactly as one uses the second trigonometric moment for axial data.}
 
 \item{eps}{finite-difference step for the score}
 }
+\value{
+A list with \code{efficiency}, the efficiency at each point of \code{kgrid}, the
+  scalars \code{fisher} and \code{mass}, the optimal concentration \code{kopt} and its
+  efficiency \code{eff_kopt}, and \code{kgrid} itself.
+}
 \description{
 After Hosking's table of L-moments for standard distributions. For each
 family the concentration parameter is the estimand, and the routine returns

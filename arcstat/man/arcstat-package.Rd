@@ -6,7 +6,7 @@
 \alias{arcstat-package}
 \title{arcstat: Arc-Length Statistics: Goodness of Fit, Distributions and a Bayesian Test}
 \description{
-Inference from the arc length of statistical functions. Three tools share one pure-C back-end: a goodness-of-fit test based on the arc length of the probability plot, with an analytic saddlepoint null and sensitivity to local density structure that the empirical-distribution tests miss; two constructions that build a distribution from the arc length of its defining curve, the arc-length generator and the quantile arc-length family estimated by L-moments; and a Bayesian nonparametric arc-length goodness-of-fit test on the Dirichlet-process posterior. The same C sources back the Python package 'arcstat'.
+Inference from the arc length of statistical functions. Three tools share one pure-C back-end: a goodness-of-fit test based on the arc length of the probability plot, with an analytic saddlepoint null and sensitivity to local density structure that the empirical-distribution tests miss; two constructions that build a distribution from the arc length of its defining curve, the arc-length generator and the quantile arc-length family estimated by L-moments; and a Bayesian nonparametric arc-length goodness-of-fit test on the Dirichlet-process posterior. The same C sources back the 'Python' package 'arcstat'.
 }
 \seealso{
 Useful links:

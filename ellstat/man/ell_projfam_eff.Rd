@@ -36,6 +36,10 @@ projected Cauchy}
 
 \item{eps}{finite-difference step for the score}
 }
+\value{
+A list with \code{efficiency}, the efficiency at each point of \code{kgrid}, the
+  scalars \code{fisher} and \code{mass}, and \code{kgrid} itself.
+}
 \description{
 Efficiency and optimal modulus for a cited projected family
 }

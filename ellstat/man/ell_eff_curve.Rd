@@ -29,6 +29,10 @@ ell_eff_curve(
 
 \item{eps}{finite-difference step for the score}
 }
+\value{
+A list with \code{efficiency}, the efficiency at each point of \code{kgrid}, the
+  scalars \code{fisher} and \code{godambe}, and \code{kgrid} itself.
+}
 \description{
 Returns the asymptotic efficiency \code{corr^2(c_1(., k), score)} of the
 moment estimator of the offset, for each modulus on \code{kgrid}. By the

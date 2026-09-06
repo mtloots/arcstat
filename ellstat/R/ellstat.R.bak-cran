@@ -15,7 +15,6 @@ ell_KE <- function(k) {
 #' @param k modulus
 #' @examples
 #' ell_nome(c(0.5, 0.9))
-#' @return A numeric vector of the same length as \code{k}, the nome for each modulus supplied.
 #' @export
 ell_nome <- function(k) {
   n <- length(k)
@@ -27,8 +26,6 @@ ell_nome <- function(k) {
 #' @param k modulus
 #' @examples
 #' ell_jacobi(seq(0, 4, length.out = 5), k = 0.7)
-#' @return A list of three numeric vectors, \code{sn}, \code{cn} and \code{dn}, each of the same
-#'   length as the argument, holding the three Jacobi elliptic functions.
 #' @export
 ell_jacobi <- function(u, k) {
   n <- length(u)
@@ -83,9 +80,6 @@ ell_moments <- function(t, P = 2L, k = 0.9) {
 #' mv <- ell_moment_var(theta, P = 2L, k = 0.9)
 #' # the realised and exact columns agree identically, not approximately
 #' max(abs(mv[, "realised"] - mv[, "exact"]))
-#' @return A numeric matrix of three columns named \code{modulus}, \code{realised} and
-#'   \code{exact}, one row per order, comparing the realised moment variance with its exact
-#'   value.
 #' @export
 ell_moment_var <- function(t, P = 3L, k = 0.9) {
   z <- .C("C_ell_moment_var", as.double(t), as.integer(length(t)),
@@ -100,8 +94,6 @@ ell_moment_var <- function(t, P = 3L, k = 0.9) {
 #' @param M number of retained harmonics per order
 #' @examples
 #' ell_transfer(k = 0.9, P = 2L, M = 4L)
-#' @return A numeric matrix of \code{P} rows holding the transfer coefficients, one row per
-#'   order.
 #' @export
 ell_transfer <- function(k, P = 3L, M = 5L) {
   z <- .C("C_ell_transfer", as.double(k), as.integer(P), as.integer(M),
@@ -117,8 +109,6 @@ ell_transfer <- function(k, P = 3L, M = 5L) {
 #' @param P number of harmonics
 #' @examples
 #' ell_dn2_moments(k = 0.8, P = 4L)
-#' @return A numeric vector of length \code{P + 1} holding the moments of order 0 to \code{P} of
-#'   the squared Jacobi dn.
 #' @export
 ell_dn2_moments <- function(k, P = 4L) {
   .C("C_ell_dn2mom", as.double(k), as.integer(P), out = double(P + 1))$out
@@ -133,8 +123,6 @@ ell_dn2_moments <- function(k, P = 4L) {
 #' @examples
 #' theta <- seq(0, 2 * pi, length.out = 9)
 #' dellvm(theta, mu = 1, kappa = 2, k = 0.9)
-#' @return A numeric vector of the same length as \code{t}, the density of the elliptical von
-#'   Mises evaluated at each angle.
 #' @export
 dellvm <- function(t, mu = 0, kappa = 1, k = 0.9, ng = 1024L) {
   .C("C_ell_evm_d", as.double(t), as.integer(length(t)), as.double(mu),
@@ -151,7 +139,6 @@ dellvm <- function(t, mu = 0, kappa = 1, k = 0.9, ng = 1024L) {
 #' @examples
 #' theta <- rellvm(10, mu = 1, kappa = 2, k = 0.9, seed = 42)
 #' round(theta, 3)
-#' @return A numeric vector of \code{n} draws from the elliptic von Mises, in radians.
 #' @export
 rellvm <- function(n, mu = 0, kappa = 1, k = 0.9, seed = 1L) {
   .C("C_ell_evm_r", as.integer(n), as.double(mu), as.double(kappa),
@@ -163,8 +150,6 @@ rellvm <- function(n, mu = 0, kappa = 1, k = 0.9, seed = 1L) {
 #' @param P highest order
 #' @examples
 #' ell_evm_moments(mu = 1, kappa = 2, k = 0.9, P = 2L)
-#' @return A numeric matrix of two columns named \code{c} and \code{s}, holding the cosine and
-#'   sine trigonometric moments, one row per order.
 #' @export
 ell_evm_moments <- function(mu, kappa, k, P = 2L, ng = 1024L) {
   z <- .C("C_ell_evm_pop", as.double(mu), as.double(kappa), as.double(k),
@@ -198,8 +183,6 @@ fit_ellvm <- function(t, k = 0.9, P = 2L, ng = 512L) {
 #' @examples
 #' theta <- rellvm(60, mu = 0, kappa = 0, k = 0.9, seed = 3)  # uniform
 #' ell_exact_uniform(theta, k = 0.9, B = 199L, seed = 1L)
-#' @return A list of two numbers: \code{statistic}, the observed test statistic, and
-#'   \code{p.value}, its exact p-value under uniformity.
 #' @export
 ell_exact_uniform <- function(t, k = 0.9, B = 999L, seed = 1L) {
   z <- .C("C_ell_exact_unif", as.double(t), as.integer(length(t)), as.double(k),
@@ -233,9 +216,6 @@ ell_exact_uniform <- function(t, k = 0.9, B = 999L, seed = 1L) {
 #' theta <- rellvm(80, mu = 1, kappa = 3, k = 0.9, seed = 11)
 #' ell_exact_ci(theta, k = 0.9, kgrid = seq(0.5, 8, length.out = 20L),
 #'              B = 99L, level = 0.05, nmu = 6L)[c("lower", "upper")]
-#' @return A list with \code{lower} and \code{upper}, the endpoints of the exact confidence
-#'   interval for the concentration, \code{statistic}, the observed statistic, and \code{curve},
-#'   a data frame of \code{kappa} against \code{p.value} giving the inverted p-value curve.
 #' @export
 ell_exact_ci <- function(t, k = 0.9, kgrid = seq(0.05, 10, length.out = 60L),
                          B = 499L, level = 0.05, seed = 1L, ng = 512L,
@@ -287,8 +267,6 @@ ell_efficiency <- function(k, kappa = 3, n = 250L, R = 2000L, ng = 1024L,
 #' @param ng quadrature points for the mixture
 #' @examples
 #' dprojell(seq(0, 2 * pi, length.out = 9), tau = 0.3, d = 0.6, beta = 2)
-#' @return A numeric vector of the same length as \code{t}, the projected elliptical density
-#'   evaluated at each angle.
 #' @export
 dprojell <- function(t, tau = 0.3, d = 0.6, beta = 2, ng = 400L) {
   .C("C_ell_pj_dens", as.double(t), as.integer(length(t)), as.double(tau),
@@ -302,7 +280,6 @@ dprojell <- function(t, tau = 0.3, d = 0.6, beta = 2, ng = 400L) {
 #' @param seed stream seed
 #' @examples
 #' rprojell(10, tau = 0.3, d = 0.6, beta = 2, seed = 5)
-#' @return A numeric vector of \code{n} draws from the projected elliptical law, in radians.
 #' @export
 rprojell <- function(n, tau = 0.3, d = 0.6, beta = 2, seed = 1L) {
   .C("C_ell_pj_rand", as.integer(n), as.double(tau), as.double(d),
@@ -324,8 +301,6 @@ rprojell <- function(n, tau = 0.3, d = 0.6, beta = 2, seed = 1L) {
 #' e <- ell_eff_curve(tau = 0.3, d = 0.6, beta = 2,
 #'                    kgrid = c(0, 0.9, 0.99), nt = 512L, ng = 100L)
 #' round(e$efficiency, 3)
-#' @return A list with \code{efficiency}, the efficiency at each point of \code{kgrid}, the
-#'   scalars \code{fisher} and \code{godambe}, and \code{kgrid} itself.
 #' @export
 ell_eff_curve <- function(tau = 0.3, d = 0.6, beta = 2,
                           kgrid = c(0, 0.9, 0.99, 0.999, 0.99999),
@@ -366,8 +341,6 @@ ell_kopt <- function(tau = 0.3, d = 0.6, beta = 2, nt = 4096L, ng = 400L,
 #' theta <- seq(0, 2 * pi, length.out = 9)
 #' dprojfam(theta, tau = 1, d = 1, family = "normal")
 #' dprojfam(theta, tau = 1, d = 1, family = "cauchy")
-#' @return A numeric vector of the same length as \code{t}, the projected-family density
-#'   evaluated at each angle.
 #' @export
 dprojfam <- function(t, tau = 1, d = 1, family = c("normal", "cauchy")) {
   w <- if (match.arg(family) == "normal") 0L else 1L
@@ -381,7 +354,6 @@ dprojfam <- function(t, tau = 1, d = 1, family = c("normal", "cauchy")) {
 #' @param seed stream seed
 #' @examples
 #' rprojfam(10, tau = 1, d = 1, family = "normal", seed = 2)
-#' @return A numeric vector of \code{n} draws from the projected family, in radians.
 #' @export
 rprojfam <- function(n, tau = 1, d = 1, family = c("normal", "cauchy"),
                      seed = 1L) {
@@ -398,8 +370,6 @@ rprojfam <- function(n, tau = 1, d = 1, family = c("normal", "cauchy"),
 #' @examples
 #' ell_projfam_eff(tau = 0.4, d = 1, family = "normal",
 #'                 kgrid = c(0, 0.9, 0.99), nt = 1024L)$efficiency
-#' @return A list with \code{efficiency}, the efficiency at each point of \code{kgrid}, the
-#'   scalars \code{fisher} and \code{mass}, and \code{kgrid} itself.
 #' @export
 ell_projfam_eff <- function(tau = 1, d = 1, family = c("normal", "cauchy"),
                             kgrid = c(0, 0.9, 0.99, 0.999, 0.99999),
@@ -447,9 +417,6 @@ ell_projfam_kopt <- function(tau = 1, d = 1, family = c("normal", "cauchy"),
 #' # the von Mises law is fully efficient at modulus zero and nowhere else
 #' r <- ell_catalogue("vonmises", p1 = 2, kgrid = c(0, 0.9), nt = 1024L)
 #' round(r$efficiency, 4)
-#' @return A list with \code{efficiency}, the efficiency at each point of \code{kgrid}, the
-#'   scalars \code{fisher} and \code{mass}, the optimal concentration \code{kopt} and its
-#'   efficiency \code{eff_kopt}, and \code{kgrid} itself.
 #' @export
 ell_catalogue <- function(family, p1, p2 = 1, order = 1L,
                           kgrid = c(0, 0.9, 0.99, 0.999, 0.99999),
@@ -482,8 +449,6 @@ ell_catalogue <- function(family, p1, p2 = 1, order = 1L,
 #' f <- dellvm(theta, mu = 1, kappa = 3, k = 0.9, ng = 512L)
 #' J <- ell_joint(f, P = 2L, k = 0.9)
 #' round(J$Sigma, 4)
-#' @return A list with \code{mean}, the numeric mean vector, and \code{Sigma}, the \code{D} by
-#'   \code{D} covariance matrix of the joint law.
 #' @export
 ell_joint <- function(f, P = 2L, k = 0.9) {
   D <- 2L * P
@@ -520,8 +485,6 @@ ell_joint_sample <- function(t, P = 2L, k = 0.9) {
 #' @examples
 #' theta <- rellvm(80, mu = 0, kappa = 0, k = 0.9, seed = 4)
 #' ell_joint_uniform(theta, P = 2L, k = 0.9, B = 199L, seed = 1L)
-#' @return A list of two numbers: \code{statistic}, the observed joint test statistic, and
-#'   \code{p.value}, its exact p-value under uniformity.
 #' @export
 ell_joint_uniform <- function(t, P = 2L, k = 0.9, B = 999L, ng = 4096L,
                               seed = 1L) {

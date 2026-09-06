@@ -17,6 +17,9 @@ rprojell(n, tau = 0.3, d = 0.6, beta = 2, seed = 1L)
 
 \item{seed}{stream seed}
 }
+\value{
+A numeric vector of \code{n} draws from the projected elliptical law, in radians.
+}
 \description{
 Simulate from the projected family
 }

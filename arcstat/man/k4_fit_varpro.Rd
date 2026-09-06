@@ -16,7 +16,7 @@ k4_fit_varpro(
 \arguments{
 \item{x, y}{the curve.}
 
-\item{starts}{a matrix with four columns, \code{(mu, log sigma, k, log h)}, one row per start.}
+\item{starts}{a matrix with four columns, \code{(mu, log sigma, k, h)}, one row per start; h is carried directly so negative values are admissible.}
 
 \item{maxit}{iterations per Nelder-Mead descent.}
 

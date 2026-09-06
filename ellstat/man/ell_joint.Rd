@@ -18,6 +18,10 @@ ell_joint_sample(t, P = 2L, k = 0.9)
 
 \item{t}{angles}
 }
+\value{
+A list with \code{mean}, the numeric mean vector, and \code{Sigma}, the \code{D} by
+  \code{D} covariance matrix of the joint law.
+}
 \description{
 Stacking the basis as \eqn{(c_1, s_1, \dots, c_P, s_P)}, the sample
 elliptic moment vector is a sample mean of a bounded vector, so its mean is

@@ -9,6 +9,9 @@ ell_nome(k)
 \arguments{
 \item{k}{modulus}
 }
+\value{
+A numeric vector of the same length as \code{k}, the nome for each modulus supplied.
+}
 \description{
 Nome q = exp(-pi K'/K)
 }

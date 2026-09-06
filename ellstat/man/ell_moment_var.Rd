@@ -13,6 +13,11 @@ ell_moment_var(t, P = 3L, k = 0.9)
 
 \item{k}{modulus}
 }
+\value{
+A numeric matrix of three columns named \code{modulus}, \code{realised} and
+  \code{exact}, one row per order, comparing the realised moment variance with its exact
+  value.
+}
 \description{
 Returns the modulus of the sample elliptic moment, its realised trace
 variance and the exact value (1 - |E|^2)/n. The two agree identically.

@@ -13,6 +13,10 @@ ell_transfer(k, P = 3L, M = 5L)
 
 \item{M}{number of retained harmonics per order}
 }
+\value{
+A numeric matrix of \code{P} rows holding the transfer coefficients, one row per
+  order.
+}
 \description{
 Transfer coefficients from trigonometric to elliptic moments
 }

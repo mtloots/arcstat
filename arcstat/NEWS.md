@@ -1,4 +1,4 @@
-# arcstat (development)
+# arcstat 0.2.0
 
 * **Breaking.** `k4_fit_varpro()` now searches the fourth shape parameter `h`
   DIRECTLY rather than on the log scale, and the sentinel asking for the free

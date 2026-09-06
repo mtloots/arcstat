@@ -36,6 +36,11 @@ direction as well as the concentration, so calibrating at a single value
 under-covers. Larger values give a more conservative and more expensive
 interval.}
 }
+\value{
+A list with \code{lower} and \code{upper}, the endpoints of the exact confidence
+  interval for the concentration, \code{statistic}, the observed statistic, and \code{curve},
+  a data frame of \code{kappa} against \code{p.value} giving the inverted p-value curve.
+}
 \description{
 Inverts the Monte Carlo test of a fixed concentration. The null is composite,
 the statistic depending on the mean direction as well as the concentration,

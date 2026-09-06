@@ -17,6 +17,9 @@ rellvm(n, mu = 0, kappa = 1, k = 0.9, seed = 1L)
 
 \item{seed}{stream seed}
 }
+\value{
+A numeric vector of \code{n} draws from the elliptic von Mises, in radians.
+}
 \description{
 Simulate from the elliptic von Mises
 }

@@ -11,6 +11,10 @@ ell_jacobi(u, k)
 
 \item{k}{modulus}
 }
+\value{
+A list of three numeric vectors, \code{sn}, \code{cn} and \code{dn}, each of the same
+  length as the argument, holding the three Jacobi elliptic functions.
+}
 \description{
 Jacobi elliptic functions
 }

@@ -100,6 +100,29 @@ profiling alpha window \code{c(alo, ahi)}}
 
 \item{alpha, betas}{a single alpha, and the vector of betas swept across it}
 }
+\value{
+All of these return plain R objects rather than a class, so they can be compared
+  element by element against the Python front end.
+  \code{eqfit_bc} returns a list with \code{th}, the fitted six-parameter vector,
+  \code{sse}, the residual sum of squares at that fit, and \code{a} and \code{b}, the two
+  curve readings; \code{eqfit_k4eq} returns the same list without \code{b}.
+  \code{eqfit_bc_boot}, \code{eqfit_k4eq_boot} and \code{eqfit_nullT} return a numeric vector
+  holding one statistic per replicate, of length \code{B} for the first two and \code{R2} for
+  the third.
+  \code{eqfit_msim} returns a list of eight numeric vectors, each of length \code{Rm}: the test
+  statistic under the truth (\code{Tlev}), under the displacement arms (\code{Taud},
+  \code{Tp2}, \code{Tp15}, \code{Tp4}) and at the three reference members (\code{Tref2},
+  \code{Tref15}, \code{Tref4}).
+  \code{eqfit_estsim} returns a numeric array of dimension
+  \code{c(R, 3, 2, length(nsizes))}, indexed by replicate, estimator, parameter and sample size.
+  \code{eqfit_taus} returns a numeric matrix of \code{R} rows with columns \code{t3},
+  \code{t4}, \code{al} and \code{be}, the two L-moment ratios and the parameter pair they map to.
+  \code{k4_ab_sweep} returns a list of the two numeric vectors \code{a} and \code{b}, one entry
+  per element of \code{k}; \code{k4_b_sweep} and \code{eq_E_sweep} return a single numeric
+  vector of the same length as \code{k} and \code{betas} respectively.
+  \code{eqfit_score_at} returns a single number, the score at the given parameter point, and
+  \code{eqfit_blocklen} a single integer, the selected moving-block length.
+}
 \description{
 \code{eqfit_bc} fits the beta-companion sigmoid by deterministic Nelder--Mead from a matrix
 of starts (free: six columns; constrained to the equivalence curve: five), returning the

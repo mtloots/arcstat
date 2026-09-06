@@ -16,6 +16,12 @@ probability-integral transform is taken}
 
 \item{seed}{seed for the splitmix64 stream, so a run reproduces exactly}
 }
+\value{
+A list of two numbers. \code{stat} is the observed arc-length spacings statistic of the
+  angles after the probability-integral transform through the fitted member, and \code{p} is its
+  Monte Carlo p-value against the distribution-free reference law. Because the transform sends
+  the sample to uniform under the hypothesis, the p-value is exact in level for any \code{B}.
+}
 \description{
 The probability-integral transform through the fitted member sends the sample to uniform under the
 hypothesis, so the reference law of the arc-length spacings statistic is distribution-free and the

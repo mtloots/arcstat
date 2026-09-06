@@ -18,6 +18,9 @@ projected Cauchy}
 
 \item{seed}{stream seed}
 }
+\value{
+A numeric vector of \code{n} draws from the projected family, in radians.
+}
 \description{
 Simulate from a cited projected family
 }

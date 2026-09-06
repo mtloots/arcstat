@@ -17,6 +17,10 @@ dellvm(t, mu = 0, kappa = 1, k = 0.9, ng = 1024L)
 
 \item{ng}{quadrature points for the normalising constant}
 }
+\value{
+A numeric vector of the same length as \code{t}, the density of the elliptical von
+  Mises evaluated at each angle.
+}
 \description{
 Elliptic von Mises density
 }

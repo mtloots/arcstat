@@ -17,6 +17,10 @@ ell_evm_moments(mu, kappa, k, P = 2L, ng = 1024L)
 
 \item{ng}{quadrature points for the normalising constant}
 }
+\value{
+A numeric matrix of two columns named \code{c} and \code{s}, holding the cosine and
+  sine trigonometric moments, one row per order.
+}
 \description{
 Population elliptic moments of the elliptic von Mises
 }

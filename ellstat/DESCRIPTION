@@ -17,7 +17,7 @@ Description: Elliptic moments generalise trigonometric moments by replacing the
     characterises the optimal modulus. Routines are provided for the basis, the
     transfer to trigonometric moments, the elliptic von Mises family, the
     arc-length family on an ellipse and the projected normal and Cauchy laws, on
-    a C back end shared with a Python front.
+    a C back end shared with a 'Python' front.
 License: GPL-3
 Encoding: UTF-8
 Depends: R (>= 4.0)

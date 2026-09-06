@@ -19,6 +19,10 @@ ell_joint_uniform(t, P = 2L, k = 0.9, B = 999L, ng = 4096L, seed = 1L)
 
 \item{seed}{stream seed}
 }
+\value{
+A list of two numbers: \code{statistic}, the observed joint test statistic, and
+  \code{p.value}, its exact p-value under uniformity.
+}
 \description{
 Under uniformity the joint covariance is fully determined, so the quadratic
 form \eqn{n\hat E'\Sigma_0^{-1}\hat E} has a null distribution free of

@@ -17,6 +17,10 @@ dprojell(t, tau = 0.3, d = 0.6, beta = 2, ng = 400L)
 
 \item{ng}{quadrature points for the mixture}
 }
+\value{
+A numeric vector of the same length as \code{t}, the projected elliptical density
+  evaluated at each angle.
+}
 \description{
 The angular law of \code{arg(Y)} where \code{Y} given \code{U} is uniform on
 the ellipse with semi-axes \code{U(1, tau)} offset by \code{d} along its

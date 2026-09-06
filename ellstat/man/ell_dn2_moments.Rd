@@ -11,6 +11,10 @@ ell_dn2_moments(k, P = 4L)
 
 \item{P}{number of harmonics}
 }
+\value{
+A numeric vector of length \code{P + 1} holding the moments of order 0 to \code{P} of
+  the squared Jacobi dn.
+}
 \description{
 On its own clock the family is dn^2/(4E); element one is E/K and element
 element \code{n + 1} is \eqn{(2\pi^2/K^2) n q^n/(1-q^{2n})}.
