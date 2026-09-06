@@ -19,3 +19,10 @@ The raw matching equation fixes an aspect ratio between the probability and resp
 therefore unit dependent; this estimator divides by the MAD, matches on the standardised scale and
 rescales, which is exactly scale equivariant.
 }
+\details{
+The sample band length is matched to \code{\link{al_band_model_star}}, not to
+\code{\link{al_band_model}}. Matching to the population band length is inconsistent: the sample
+quantity converges to \eqn{S^*} rather than to \eqn{S}, so that estimator is biased by a constant
+factor that does not vanish with the sample size, about five per cent high at the standard normal
+on the default band. \code{\link{al_scale_raw}} retains the uncorrected form for comparison.
+}

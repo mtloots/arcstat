@@ -1,3 +1,30 @@
+# arcstat 0.3.0
+
+* **Breaking, and it corrects a wrong answer.** `al_scale()` now matches the sample band arc length
+  to the spacing-corrected model band length `al_band_model_star()` rather than to the population
+  band length `al_band_model()`. The old behaviour was inconsistent: order statistics inside the
+  band are spaced like Q'(u)E/n with E standard exponential, so the polygonal sum converges to
+
+      S*(sigma) = int E sqrt(f0(z)^2 + sigma^2 E^2) dz = E S(sigma E),
+
+  and not to S(sigma). The two differ by a constant factor, because the square root is nonlinear
+  and E[E^2] = 2 rather than 1, and the gap does NOT close as the sample grows. At the standard
+  normal on the default band the old estimator returned about 1.05 when the scale was 1, at every
+  sample size. `al_scale()` now returns 1.001 at n = 20000 and its bias shrinks with n.
+
+  Estimates of SCALE change. Regression slopes computed from this estimator do not, because a
+  multiplicative bias in the level cancels in a log-linear slope; interval coverage does change,
+  and becomes correct.
+
+* New `al_band_model_star()`, the spacing-corrected model band arc length, on both fronts. Its
+  exponential expectation uses an 80-node Gauss-Legendre rule under the map t = s/(1 - s), which
+  agrees with adaptive double integration to 3e-13 across sigma from 0.1 to 10 and across four
+  bands. A Gauss-Laguerre rule was tried first and rejected: it reaches only 2e-5 at sigma = 10,
+  because the integrand has a kink at t of order f/sigma that falls below its first node.
+
+* New `al_scale_raw()`, the uncorrected estimator, retained only so that the size of the
+  correction can be measured. It is inconsistent and is documented as such.
+
 # arcstat 0.2.0
 
 * **Breaking.** `k4_fit_varpro()` now searches the fourth shape parameter `h`

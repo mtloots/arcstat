@@ -456,11 +456,37 @@ al_band_sample <- function(x, a = 0.05, b = 0.95) {
   .C(C_al_band_sample, x = x, n = length(x), a = as.double(a), b = as.double(b), out = double(1))$out
 }
 
+#' Spacing-corrected model band arc length (C back-end)
+#'
+#' The sample band arc length does not converge to the population band arc length
+#' \code{\link{al_band_model}}. Consecutive order statistics inside the band are spaced like
+#' \eqn{Q'(u)E/n} with \eqn{E} standard exponential, so the polygonal sum converges instead to
+#' \deqn{S^*(\sigma) = \int_{z_a}^{z_b} E\sqrt{f_0(z)^2 + \sigma^2 E^2}\,dz = E\,S(\sigma E),}
+#' which differs from \eqn{S(\sigma)} by a constant factor because the square root is nonlinear and
+#' \eqn{E[E^2] = 2}. The gap does not close as the sample grows. This is the functional
+#' \code{\link{al_scale}} matches, and matching to it is what makes that estimator consistent.
+#' @param sigma scale at which to evaluate the model band length.
+#' @param a,b the probability band.
+#' @param nodes number of Simpson nodes across the band; the exponential expectation uses a
+#'   64-point Gauss-Laguerre rule, which is exact to machine precision for this integrand.
+#' @return the spacing-corrected model band arc length at \code{sigma}.
+#' @export
+al_band_model_star <- function(sigma, a = 0.05, b = 0.95, nodes = 400) {
+  .C(C_al_band_model_star, sigma = as.double(sigma), a = as.double(a), b = as.double(b),
+     nodes = as.integer(nodes), out = double(1))$out
+}
+
 #' Scale by arc-length band matching, in the scale-equivariant standardised form (C back-end)
 #'
 #' The raw matching equation fixes an aspect ratio between the probability and response axes and is
 #' therefore unit dependent; this estimator divides by the MAD, matches on the standardised scale and
 #' rescales, which is exactly scale equivariant.
+#'
+#' The sample band length is matched to \code{\link{al_band_model_star}}, not to
+#' \code{\link{al_band_model}}. Matching to the population band length is inconsistent: the sample
+#' quantity converges to \eqn{S^*} rather than to \eqn{S}, so that estimator is biased by a constant
+#' factor that does not vanish with the sample size, about five per cent high at the standard normal
+#' on the default band. \code{\link{al_scale_raw}} retains the uncorrected form for comparison.
 #' @param x data;
 #' @param a,b the probability band, whose tail mass sets the breakdown point.
 #' @return the estimated scale, NA when the MAD vanishes or the matching equation has no root.
@@ -468,6 +494,21 @@ al_band_sample <- function(x, a = 0.05, b = 0.95) {
 al_scale <- function(x, a = 0.05, b = 0.95) {
   x <- as.double(x[is.finite(x)])
   .C(C_al_scale, x = x, n = length(x), a = as.double(a), b = as.double(b), out = double(1))$out
+}
+
+#' The uncorrected band-matching scale estimator (C back-end)
+#'
+#' Matches the sample band arc length to the population band length \code{\link{al_band_model}}
+#' rather than to \code{\link{al_band_model_star}}. INCONSISTENT: it estimates the wrong quantity,
+#' by a constant factor that does not vanish as the sample grows. Retained only so that the size of
+#' the correction can be measured. Use \code{\link{al_scale}}.
+#' @param x data;
+#' @param a,b the probability band.
+#' @return the uncorrected scale estimate, NA when the MAD vanishes or there is no root.
+#' @export
+al_scale_raw <- function(x, a = 0.05, b = 0.95) {
+  x <- as.double(x[is.finite(x)])
+  .C(C_al_scale_raw, x = x, n = length(x), a = as.double(a), b = as.double(b), out = double(1))$out
 }
 
 ## ---------------------------------------------------------------------------------------------

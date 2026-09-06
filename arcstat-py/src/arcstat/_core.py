@@ -73,8 +73,10 @@ _lib.al_moments.argtypes = [_ip, _dp]
 _lib.arcq_qd.argtypes = [_dp, _ip, _dp, _ip, _dp, _dp]
 _lib.arcq_arclength.argtypes = [_dp, _ip, _dp, _ip, _dp]
 _lib.al_band_model.argtypes = [_dp, _dp, _dp, _ip, _dp]
+_lib.al_band_model_star.argtypes = [_dp, _dp, _dp, _ip, _dp]
 _lib.al_band_sample.argtypes = [_dp, _ip, _dp, _dp, _dp]
 _lib.al_scale.argtypes = [_dp, _ip, _dp, _dp, _dp]
+_lib.al_scale_raw.argtypes = [_dp, _ip, _dp, _dp, _dp]
 _lib.sample_lmoments_c.argtypes = [_dp, _ip, _ip, _dp]
 _lib.arcq_fit_cf_c.argtypes = [_dp, _ip, _dp]
 _lib.bb_post.argtypes = [_ip, _dp, _ip, _ip, _dp]
@@ -242,9 +244,28 @@ def al_band_sample(x, a=0.05, b=0.95):
     """Sample band arc length of the empirical distribution curve."""
     out = _d1(0.0); _lib.al_band_sample(_d(x), _i(len(x)), _d1(a), _d1(b), out); return out[0]
 
+def al_band_model_star(sigma, a=0.05, b=0.95, nodes=400):
+    """Spacing-corrected band arc length S*(sigma) = E S(sigma E), E ~ Exp(1).
+
+    The sample band arc length does not converge to al_band_model. Order statistics inside the band
+    are spaced like Q'(u)E/n with E standard exponential, so the polygonal sum converges to S*
+    instead, which differs from S by a constant factor that does not vanish with the sample size.
+    This is the functional al_scale matches.
+    """
+    out = _d1(0.0); _lib.al_band_model_star(_d1(sigma), _d1(a), _d1(b), _i(nodes), out); return out[0]
+
 def al_scale(x, a=0.05, b=0.95):
-    """Scale by arc-length band matching, in the scale-equivariant standardised form."""
+    """Scale by arc-length band matching, in the scale-equivariant standardised form.
+
+    Matches the sample band length to al_band_model_star, which makes the estimator consistent.
+    Matching to al_band_model instead is inconsistent, biased high by a constant factor of about
+    five per cent at the standard normal on the default band; al_scale_raw retains that form.
+    """
     out = _d1(0.0); _lib.al_scale(_d(x), _i(len(x)), _d1(a), _d1(b), out); return out[0]
+
+def al_scale_raw(x, a=0.05, b=0.95):
+    """The uncorrected band-matching scale estimator. INCONSISTENT; see al_scale."""
+    out = _d1(0.0); _lib.al_scale_raw(_d(x), _i(len(x)), _d1(a), _d1(b), out); return out[0]
 
 
 # ---- circular (wrapped) arc-length family ----

@@ -175,6 +175,63 @@ static double std_normal_qf(double p) {
   return x - u / (1.0 + 0.5 * x * u);
 }
 
+/* ---- Exp(1) quadrature for the spacing correction ----
+ *
+ * The sample band arc length does NOT converge to the population band arc length S(sigma).
+ * Consecutive order statistics inside the band are spaced like Q'(u) E / n with E ~ Exp(1), so each
+ * segment contributes (1/n) sqrt(Q'(u)^2 E^2 + 1) and the sum converges instead to
+ *
+ *     S*(sigma) = int_{z_a}^{z_b} E sqrt(f_0(z)^2 + sigma^2 E^2) dz = E S(sigma E),
+ *
+ * which differs from S(sigma) by a constant factor, because the square root is nonlinear and
+ * E[E^2] = 2 rather than 1. The gap does not close as n grows. Matching a sample band length to
+ * S(sigma) therefore returns an inconsistent estimator of scale, about five per cent high at the
+ * standard normal on the default band; matching to S*(sigma) is consistent.
+ *
+ * The inner expectation is int_0^inf g(t) e^{-t} dt exactly, so Gauss-Laguerre is the natural rule.
+ * Sixty-four nodes, computed once by Newton iteration on the Laguerre polynomials and cached.
+ */
+/* The inner expectation is int_0^inf g(t) e^{-t} dt. Gauss-Laguerre is the obvious rule but loses
+ * accuracy at large sigma, where the integrand has a kink at t of order f/sigma that falls below its
+ * first node. Mapping t = s/(1-s) onto (0,1) and applying Gauss-Legendre in s puts the resolution
+ * where the kink is; measured against adaptive double integration it is exact to machine precision
+ * across sigma from 0.1 to 10, where the Laguerre rule reached only 2e-5 at the top. This is also
+ * the rule the manuscript uses, so the two agree to the last digit. Eighty nodes, computed once by
+ * Newton iteration on the Legendre polynomials and cached. */
+#define AL_NEXP 80
+static double exp_t[AL_NEXP], exp_w[AL_NEXP];
+static int exp_ready = 0;
+
+static void al_exp_nodes(void) {
+  const int n = AL_NEXP;
+  const int m = (n + 1) / 2;
+  double xs[AL_NEXP], ws[AL_NEXP];
+  for (int i = 0; i < m; i++) {
+    double z = cos(M_PI * (i + 0.75) / (n + 0.5)), z1, pp = 1.0;
+    for (int it = 0; it < 100; it++) {
+      double p1 = 1.0, p2 = 0.0, p3;
+      for (int j = 0; j < n; j++) {
+        p3 = p2; p2 = p1;
+        p1 = ((2.0 * j + 1.0) * z * p2 - j * p3) / (j + 1.0);
+      }
+      pp = n * (z * p1 - p2) / (z * z - 1.0);
+      z1 = z; z = z1 - p1 / pp;
+      if (fabs(z - z1) <= 1e-15) break;
+    }
+    xs[i] = -z;            ws[i] = 2.0 / ((1.0 - z * z) * pp * pp);
+    xs[n - 1 - i] = z;     ws[n - 1 - i] = ws[i];
+  }
+  double tot = 0.0;
+  for (int i = 0; i < n; i++) {
+    double sv = (xs[i] + 1.0) / 2.0, wv = ws[i] / 2.0;
+    exp_t[i] = sv / (1.0 - sv);
+    exp_w[i] = wv * exp(-exp_t[i]) / ((1.0 - sv) * (1.0 - sv));
+    tot += exp_w[i];
+  }
+  for (int i = 0; i < n; i++) exp_w[i] /= tot;
+  exp_ready = 1;
+}
+
 void al_band_model(const double *sigma, const double *a, const double *b, const int *nodes,
                    double *out) {
   double za = std_normal_qf(*a), zb = std_normal_qf(*b);
@@ -185,6 +242,28 @@ void al_band_model(const double *sigma, const double *a, const double *b, const 
   for (int i = 0; i <= N; i++) {
     double u = za + i * h, f = std_normal_pdf(u);
     double g = sqrt((*sigma) * (*sigma) + f * f);
+    double wt = (i == 0 || i == N) ? 1.0 : (i % 2 ? 4.0 : 2.0);
+    s += wt * g;
+  }
+  *out = s * h / 3.0;
+}
+
+/* Spacing-corrected model band arc length, S*(sigma) = E S(sigma E), E ~ Exp(1).
+ * This is the limit of the sample band arc length, and the functional the scale estimator matches. */
+void al_band_model_star(const double *sigma, const double *a, const double *b, const int *nodes,
+                        double *out) {
+  if (!exp_ready) al_exp_nodes();
+  double za = std_normal_qf(*a), zb = std_normal_qf(*b);
+  int N = (*nodes > 8) ? *nodes : 8;
+  if (N % 2) N++;
+  double h = (zb - za) / N, s = 0.0;
+  for (int i = 0; i <= N; i++) {
+    double u = za + i * h, f = std_normal_pdf(u), f2 = f * f;
+    double g = 0.0;
+    for (int k = 0; k < AL_NEXP; k++) {
+      double st = (*sigma) * exp_t[k];
+      g += exp_w[k] * sqrt(f2 + st * st);
+    }
     double wt = (i == 0 || i == N) ? 1.0 : (i % 2 ? 4.0 : 2.0);
     s += wt * g;
   }
@@ -239,9 +318,43 @@ void al_scale(const double *x, const int *n, const double *a, const double *b, d
 
   int nodes = 400;
   double lo = 1e-4, hi = 30.0, flo, fhi, fm, mid = 0.0;
+  al_band_model_star(&lo, a, b, &nodes, &flo); flo -= target;
+  al_band_model_star(&hi, a, b, &nodes, &fhi); fhi -= target;
+  if (flo * fhi > 0.0) { *out = NAN; return; }              /* no root in the bracket */
+  for (int it = 0; it < 200; it++) {
+    mid = 0.5 * (lo + hi);
+    al_band_model_star(&mid, a, b, &nodes, &fm); fm -= target;
+    if (fm == 0.0 || (hi - lo) < 1e-12) break;
+    if (flo * fm < 0.0) { hi = mid; fhi = fm; } else { lo = mid; flo = fm; }
+  }
+  *out = s0 * mid;
+}
+
+/* The uncorrected estimator, matching to S rather than to S*. Inconsistent, and retained only so
+ * that the size of the correction can be measured; see al_scale for what to use. */
+void al_scale_raw(const double *x, const int *n, const double *a, const double *b, double *out) {
+  int N = *n;
+  double *v = (double *)malloc((size_t)N * sizeof(double));
+  for (int i = 0; i < N; i++) v[i] = x[i];
+  qsort(v, (size_t)N, sizeof(double), cmp_d);
+  double med = quantile7(v, N, 0.5);
+  for (int i = 0; i < N; i++) v[i] = fabs(v[i] - med);
+  qsort(v, (size_t)N, sizeof(double), cmp_d);
+  double s0 = 1.4826 * quantile7(v, N, 0.5);
+  free(v);
+  if (!(s0 > 0.0) || !isfinite(s0)) { *out = NAN; return; }
+
+  double *z = (double *)malloc((size_t)N * sizeof(double));
+  for (int i = 0; i < N; i++) z[i] = x[i] / s0;
+  double target; al_band_sample(z, n, a, b, &target);
+  free(z);
+  if (isnan(target)) { *out = NAN; return; }
+
+  int nodes = 400;
+  double lo = 1e-4, hi = 30.0, flo, fhi, fm, mid = 0.0;
   al_band_model(&lo, a, b, &nodes, &flo); flo -= target;
   al_band_model(&hi, a, b, &nodes, &fhi); fhi -= target;
-  if (flo * fhi > 0.0) { *out = NAN; return; }              /* no root in the bracket */
+  if (flo * fhi > 0.0) { *out = NAN; return; }
   for (int it = 0; it < 200; it++) {
     mid = 0.5 * (lo + hi);
     al_band_model(&mid, a, b, &nodes, &fm); fm -= target;

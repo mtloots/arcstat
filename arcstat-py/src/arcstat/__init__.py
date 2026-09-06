@@ -2,7 +2,7 @@
 binding to a shared C back-end (compiled on first import from the bundled sources; the same sources
 back the R package 'arcstat'). Pure standard library."""
 # goodness of fit
-from ._core import (arcc_exact_ci, arcc_gof, al_band_model, al_band_sample, al_moments, al_pvalue, al_scale, al_statistic,
+from ._core import (arcc_exact_ci, arcc_gof, al_band_model, al_band_model_star, al_band_sample, al_moments, al_pvalue, al_scale, al_scale_raw, al_statistic,
     icc_oneway, locus_dist)
 # the arcq distribution family and L-moments
 from ._core import (arcq_arclength, arcq_qd, fit_arcq_cf, sample_lmoments)
@@ -19,10 +19,12 @@ from ._core import (k4_band_model, k4_band_trop_mean, k4_band_sample, k4_cdf, k4
 
 __all__ = [
     "al_band_model",
+    "al_band_model_star",
     "al_band_sample",
     "al_moments",
     "al_pvalue",
     "al_scale",
+    "al_scale_raw",
     "al_statistic",
     "arcc_Q3",
     "arcc_Q_fr",

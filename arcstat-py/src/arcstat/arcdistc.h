@@ -26,7 +26,10 @@ void al_band_sample(const double *x, const int *n, const double *a, const double
  * the data are divided by their MAD, the matching equation is solved by bisection on the
  * standardised scale, and the root is multiplied back. out is NA when the MAD vanishes or the
  * matching equation has no root in the bracket. */
+void al_band_model_star(const double *sigma, const double *a, const double *b, const int *nodes,
+                        double *out);
 void al_scale(const double *x, const int *n, const double *a, const double *b, double *out);
+void al_scale_raw(const double *x, const int *n, const double *a, const double *b, double *out);
 
 /* first nmom sample L-moments (Hosking) of x (length n); out has length nmom. */
 void sample_lmoments_c(const double *x, const int *n, const int *nmom, double *out);

@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "arcstat"
-version = "0.1.0"
+version = "0.3.0"
 description = "Arc-length statistics: goodness of fit, distributions and a Bayesian test (shared C back-end, also bound from R)"
 requires-python = ">=3.9"
 classifiers = [
