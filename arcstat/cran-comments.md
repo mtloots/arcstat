@@ -1,55 +1,48 @@
-## Resubmission
+## Submission of 0.3.0, a correction
 
-This is a resubmission of a first submission, following Leonore Hochhauser's review of 0.1.0 on
-31 August 2026. Both points raised have been addressed.
+This update follows 0.2.0 within a day, and I am sorry to come back so soon. The reason is that
+0.2.0 returns a wrong number, and I would rather say so than let it stand.
 
-**`\value` tags.** `\value` was missing from `arcc_gof.Rd` and `eqfit_bc.Rd`. Both now document
-the class and structure of what is returned and what it means. `eqfit_bc.Rd` documents thirteen
-exported functions that share one help page, so its `\value` names each of them and the object it
-returns. A sweep of the package confirms no other `.Rd` for an exported function is missing the tag.
+**What was wrong.** `al_scale()` matched the sample band arc length to the population band arc
+length. Those are not the same quantity. Order statistics inside the band are spaced like
+`Q'(u)E/n` with `E` standard exponential, so the polygonal sum converges to
 
-**References in DESCRIPTION.** There are none to give. The methods in this package are described in
-a manuscript currently under review at the Journal of Statistical Planning and Inference
-(JSPI-D-26-00392), and in a University of Pretoria PhD thesis from which nothing was published as an
-article. Neither carries a DOI I can point to, and I would rather cite nothing than cite something a
-reader cannot reach. The CRAN cookbook notes that a reference in the Description field is optional,
-so the field is unchanged in that respect. I will add the citation as soon as the paper has a DOI.
+    S*(sigma) = int E sqrt(f0(z)^2 + sigma^2 E^2) dz,
 
-I also took the opportunity to single-quote the software name 'Python' in the Description, which the
-cookbook asks for and which the earlier version did not do.
+not to `S(sigma)`. The square root is not linear and `E[E^2] = 2`, so the two differ by a constant
+factor that does not vanish as the sample grows. For a standard normal response on the default band
+the old estimator returned about 1.05 when the scale was 1, at every sample size. It is an
+inconsistent estimator, not a small-sample effect.
 
-**Version.** This resubmission is 0.2.0 rather than 0.1.0. The additional change is a breaking
-reparameterisation of the fourth shape parameter in `k4_fit_varpro()`, searched directly rather than
-on the log scale, which is documented at the head of NEWS.md. The log scale confined that parameter
-to the positive half-line, so the free fit could not reach members that genuinely lie on the negative
-one. Submitting 0.2.0 avoids publishing semantics I would have to deprecate immediately.
+**What changed.** `al_scale()` now matches to the spacing-corrected `al_band_model_star()`, which is
+new and exported. At n = 20000 on the same example it returns 1.001, and its bias shrinks with n.
+`al_scale_raw()` is also new, and keeps the old behaviour under a name that says what it is, so that
+the size of the correction can be measured rather than merely asserted.
+
+Estimates of scale from this package change. Regression slopes computed from it do not, because a
+multiplicative bias in the level cancels in a log-linear slope. Interval coverage changes, and
+becomes correct. NEWS.md states this in the same terms.
+
+**Reverse dependencies.** None; the package has been on CRAN less than a day.
 
 ## Test environments
 
-* local macOS 26 (arm64), R 4.6.1, `R CMD check --as-cran` on the built tarball
-* GitHub Actions, R release on ubuntu-latest
-* win-builder, R-devel, on this exact tarball
-
-NOTE TO SELF, 31 Aug 2026: the earlier version of this file claimed GitHub Actions coverage of
-R-devel, R oldrel-1, macOS and Windows. THAT WAS NOT TRUE FOR 0.2.0. The workflow's CRAN-like
-matrix job carries `if: github.event_name == 'workflow_dispatch'`, so on an ordinary push only the
-quick ubuntu-release job runs, and the matrix has to be started by hand. Before claiming multi-
-platform coverage again, either dispatch that workflow and wait for it, or cite win-builder.
+* local: macOS 26.5, R 4.6.1, Apple clang 21.0.0
+* `R CMD check --as-cran` on the tarball: Status 2 NOTEs, both described below
 
 ## R CMD check results
 
-0 errors | 0 warnings | 1 note
+Two NOTEs, no ERRORs and no WARNINGs.
 
-The note is "New submission", which is expected.
+* *Days since last update: 0.* This is the update described above. I judged a correct answer to be
+  worth the short interval, and I will not submit again soon.
+* *Skipping checking HTML validation / math rendering.* HTML Tidy on this machine is too old and the
+  'V8' package is unavailable locally. Neither reflects package content.
 
-## Notes for the reviewer
+## On the DESCRIPTION reference
 
-* The package contains compiled C. It uses only libm and R's own headers, has no system
-  requirements beyond a C compiler, and registers its native routines with
-  `R_registerRoutines` and `R_useDynamicSymbols(dll, FALSE)`.
-* The same C sources back a 'Python' package of the same name. A parity harness in the
-  repository compares every exported quantity from both front ends and requires the printed
-  values to be identical; the tests here encode the mathematical identities the routines must
-  satisfy, including two closed forms (`cf_arclength_family("normal")` is exactly 2 and
-  `("exponential")` exactly pi).
-* No example, test or vignette uses more than two cores.
+Still none to give, and the position has changed since 0.2.0. The manuscript describing these
+methods was declined by the Journal of Statistical Planning and Inference; the work has since been
+merged into a single paper, which corrects exactly the defect this release fixes, and is being
+prepared for the Electronic Journal of Statistics. There is no DOI to cite yet. I will add the
+citation as soon as there is one.

@@ -1,6 +1,10 @@
 
 # arcstat
 
+[![CRAN
+status](https://www.r-pkg.org/badges/version/arcstat)](https://CRAN.R-project.org/package=arcstat)
+[![CRAN
+downloads](https://cranlogs.r-pkg.org/badges/grand-total/arcstat)](https://CRAN.R-project.org/package=arcstat)
 [![R-CMD-check](https://github.com/mtloots/arcstat/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mtloots/arcstat/actions/workflows/R-CMD-check.yaml)
 
 Inference from the **arc length** of statistical functions: a
@@ -14,6 +18,14 @@ Python, and the two front ends are checked against each other value by
 value.
 
 ## Installation
+
+Install the released version from CRAN:
+
+``` r
+install.packages("arcstat")
+```
+
+The development version, which may be ahead of CRAN:
 
 ``` r
 # install.packages("remotes")
