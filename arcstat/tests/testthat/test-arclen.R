@@ -40,3 +40,16 @@ test_that("al_scale is exactly scale equivariant", {
   set.seed(12); x <- rnorm(2000)
   expect_equal(al_scale(7 * x), 7 * al_scale(x), tolerance = 1e-10)
 })
+
+test_that("al_pvalue never returns a probability outside [0, 1], even far in the tail", {
+  # badly non-uniform samples that drove the pre-0.3.1 saddlepoint tail below zero
+  set.seed(17)
+  for (pow in c(4, 12, 30)) {
+    u <- pmin(pmax(runif(150)^pow, 1e-9), 1 - 1e-9)
+    s <- .C("al_statistic", as.integer(length(u)), as.double(u), out = double(1))$out
+    p <- .C("al_pvalue", as.double(s), as.integer(length(u)), out = double(1))$out
+    expect_true(is.finite(p))
+    expect_gte(p, 0)
+    expect_lte(p, 1)
+  }
+})

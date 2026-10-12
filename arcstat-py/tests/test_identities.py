@@ -239,3 +239,13 @@ def test_posterior_draws_are_shaped_and_seeded():
     p2 = a.bb_post_disc(_unif(60), 200, 1)
     assert len(p1) == 200
     assert p1 == p2
+
+
+def test_pvalue_never_leaves_unit_interval_far_in_the_tail():
+    # badly non-uniform samples that drove the pre-0.3.1 saddlepoint tail below zero
+    import random
+    rng = random.Random(17)
+    for pw in (4, 12, 30):
+        u = [min(max(rng.random() ** pw, 1e-9), 1 - 1e-9) for _ in range(150)]
+        p = a.al_pvalue(a.al_statistic(u), len(u))
+        assert math.isfinite(p) and 0.0 <= p <= 1.0

@@ -1,3 +1,14 @@
+# arcstat 0.3.1
+
+* `al_pvalue()` could return a **negative** probability far in the right tail. The Lugannani-Rice
+  tail is an asymptotic expansion and its correction term overshoots there: at n = 150 on badly
+  non-uniform samples the returned value was -6.5e-29 and -2.1e-89. Numerically zero, and no
+  decision at any conventional level was affected, but a probability must lie in [0, 1] and callers
+  comparing against a level must never see a negative number. The value is now clamped to [0, 1] in
+  the C back-end, so both the R and the Python bindings inherit the fix. Found 17 September 2026
+  while using the test as a calibration instrument for a time-series language model. A regression
+  test now checks the tail directly.
+
 # arcstat 0.3.0
 
 * **Breaking, and it corrects a wrong answer.** `al_scale()` now matches the sample band arc length

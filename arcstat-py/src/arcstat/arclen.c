@@ -111,6 +111,12 @@ void al_pvalue(const double *s, const int *n, double *out) {
   double Phi = 0.5 * erfc(-w / sqrt(2.0));                    /* pnorm(w) */
   double phi = exp(-0.5 * w * w) / sqrt(2.0 * M_PI);
   *out = 1.0 - Phi - phi * (1.0 / w - 1.0 / u);
+  /* The Lugannani-Rice tail is an asymptotic expansion and far in the tail its correction term
+   * overshoots: measured 17 September 2026 at n = 150 on badly non-uniform PIT samples, p came back
+   * as -6.5e-29 and -2.1e-89. Numerically zero, but a probability is not allowed to be negative and
+   * a caller comparing against a level must never see one. Clamped to [0, 1]. */
+  if (*out < 0.0) *out = 0.0;
+  if (*out > 1.0) *out = 1.0;
 }
 
 /* --- exact moments via the Dirichlet spacing integrals (composite Simpson) --- */
