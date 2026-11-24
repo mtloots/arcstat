@@ -28,9 +28,8 @@ on \eqn{h} is admissible and meaningful: it admits the generalised extreme value
 distribution, the \eqn{h \to 0} member of the family, and with \eqn{k = 0} the Gumbel.}
 
 \item{hfix}{hold \eqn{h} at this value and fit the remaining three parameters, which is how a
-submodel is fitted in its own right; \code{NA} (the default) fits all four. Because \eqn{h} is
-searched on the log scale, \eqn{h = 0} is unreachable by the free search, which creeps toward
-it and reports a spurious small value instead of naming the submodel. Choosing between the two
+submodel is fitted in its own right; \code{NA} (the default) fits all four. \eqn{h} is searched
+directly, so \eqn{h = 0} is an ordinary point of the free search. Choosing between the two
 fits is model selection between a nested pair, and is left to the caller.}
 }
 \value{

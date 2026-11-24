@@ -492,7 +492,9 @@ def k4_band_sample(x, y, breaks, p=2.0):
     return list(out)
 
 def k4_readings(theta, grid=4000):
-    """The two standard induction-period readings of a fitted kappa curve"""
+    """The two standard induction-period readings [a, b, mode] of a fitted kappa curve, in closed
+    form. grid is ignored and kept so that existing calls work. NaN where a reading does not exist:
+    the mode needs k < 1, h < 1, h k < 1, and b needs also h < 1/2, h k < 1/2."""
     out = (_ct.c_double * 3)(); _lib.arck4_readings(_vec(theta), _i(grid), out); return list(out)
 
 def k4_fit_lmom(t3, t4, nodes=200):

@@ -1,4 +1,60 @@
-# arcstat (development version)
+# arcstat (development version 0.3.1.9001)
+
+* **`k4_readings()` returned tangent readings that were too low on heavy right tails**, and with it
+  every routine that reads a kappa curve: `eqfit_k4eq()`, `eqfit_k4eq_boot()`, `k4_mv_boot()`,
+  `k4_b_sweep()` and `k4_ab_sweep()`. The steepest point was taken from a grid between the 0.1 and
+  99.9 per cent quantiles; with `k` near -1 that range is so long that the steepest point falls
+  between two nodes. On 97 fitted oil shapes the tangent reading moves up by more than 0.1 per cent
+  on 45 and by more than 1 per cent on 26, at most by 15.8 per cent, and never down. Both readings
+  are now closed forms: in r = u^h / w, w = (1 - u^h)/h, the steepest point is
+  r = (1 - h)/(1 - k) and the third-derivative reading is a root of a quadratic. They agree with
+  50-digit values to about 1e-15 relative over k from -2.5 to 1.2 and h from -60 to 2, including the
+  limits. The `grid` argument is kept and ignored. The existence guards are now the exact conditions
+  (`a` and `mode`: k < 1, h < 1, hk < 1; `b`: also h < 1/2, hk < 1/2); readings that used to be `NaN`
+  only because they lay outside the 0.1 to 99.9 per cent range, or below the rounding threshold of
+  the differenced density, are now returned (`b` on 6 of the 97 oil shapes).
+
+* **`k4_mv_boot()` did not refit the shape on its replicates.** The replicate start carried log h
+  where the variable-projection fit takes h, so for h < 1 it lay outside the box, the free fit never
+  moved, and the selection fell back on the h = 0 submodel: the replicate columns `LS`,
+  `transient-excised`, `grid-odd` and `grid-even` were those of `GEV-LS`. Present since h has been
+  searched directly (27 August 2026). Point estimates `a_pt` were not affected by this.
+
+* `eqfit_msim()`, `eqfit_nullT()`, `eqfit_score_at()`, `eqfit_bc()` and `eqfit_bc_boot()` evaluated
+  the companion curve by linear interpolation of its inverse on 2049 levels: up to 1.7e-4 wrong in
+  F, and, differentiated numerically, a step function, so that the score statistic was rough on
+  every scale and its apparent minima were often artefacts of the interpolation (0.057 at a point
+  where the exact statistic is 0.424). The curve is now solved to machine precision at each point,
+  the Jacobian uses exact derivatives in location and scale, and the projection is an
+  orthogonalisation without a ridge. One evaluation of the statistic is about four times faster.
+  **Every value of the score statistic changes**; see the next item for the minimum.
+
+* The minimiser behind `eqfit_msim()` and `eqfit_nullT()` is a global search: a dense grid over
+  location, right end of the support and alpha, least-squares starts, descents from every grid-local
+  minimum, tight polishing, and an explicit search of the faces on which a design point leaves the
+  support, where the statistic is discontinuous. It costs about 7 seconds of processor time per
+  draw at n = 400, against about 17 before. `maxit` no longer has an effect in these two
+  functions.
+
+* `k4_tau34()` (and `k4_fit_lmom()`, which uses it) used a Gauss rule on an integrand singular at
+  both ends: errors in tau_3 of 2e-6 at (0.2, 0.4), 3e-3 at (-0.5, 0.3) and up to 0.1 near k = -1. It
+  now uses a transformed trapezoid that is exact to 1e-15 and returns `NaN` where the moments do not
+  exist.
+
+* `k4_fit_aleq()` integrated a band that starts at 0 with a 40-node Gauss rule across the singularity
+  of the quantile density: model band lengths wrong by 5 per cent at h = 0.3 and 25 per cent at
+  h = 0.1. Bands within 0.05 of either end now use a double-exponential rule. Interior bands are
+  unchanged.
+
+* `bc_q()`, `bc_cdf()` and `bc_pdf()` lost accuracy as beta approaches -1 (relative errors 2e-3 in
+  `bc_q()` at beta = -1 + 1e-12): the incomplete beta is now computed unscaled on the logit scale.
+  `eq_bstar()` no longer returns `NaN` when the root lies within 0.001 of beta = -1. `eq_readings()`
+  without a tilt is in closed form (1e-15 instead of 2e-9), and `eq_readings_vsl()` finds derivative
+  readings below u = 0.001.
+
+* `qmin_rho()` refines the grid minimum (it was up to 2e-6 too high), and with it `admiss_rho()`.
+
+# arcstat (development version 0.3.1.9000)
 
 * **`eq_readings()` returned readings that were too low, and so did `eqfit_bc()` and
   `eqfit_bc_boot()`, which use it.** The routine integrates the quantile density from a grid that
@@ -14,7 +70,7 @@
   on the whole range, including beta = -1 + 1e-9. The observation-domain readings that
   `eqfit_bc()` returns (`a`, `b`) and the bootstrap vector of `eqfit_bc_boot()` move with them.
   `eq_readings_vsl()` had the same omission for lambda below 1 and now uses the closed-form integral.
-  The kappa readings (`k4_readings()`) use a different routine and are not affected.
+  The kappa readings (`k4_readings()`) use a different routine; see 0.3.1.9001 for theirs.
 
 * The minimiser behind `eqfit_msim()` and `eqfit_nullT()` often stopped above the minimum of its
   own objective, so the statistic was too large at those draws: on 40 null draws at alpha = -0.52

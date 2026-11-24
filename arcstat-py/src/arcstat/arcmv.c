@@ -54,7 +54,7 @@ static int mv_threads(void) {                 /* the back end's CRAN-safe cap, a
 #endif
 
 #define MV_M 8
-#define MV_GRID 4000
+#define MV_GRID 4000                   /* ignored by arck4_readings, which is exact */
 
 /* ---- deterministic per-replicate RNG: splitmix64 ---- */
 static double mv_unif(unsigned long long *s) {
@@ -210,8 +210,8 @@ void arck4_mv_boot(const double *x, const double *y, const int *n, const double 
     if (isfinite(dA) && dA < 0) base = og;
   }
   double base_st6[6]; mv_tr6(base, base_st6);
-  double base_vp[4] = {base[3], log(base[4] > 1e-8 ? base[4] : 1e-8), base[5],
-                       log(base[6] > 1e-3 ? base[6] : 1e-3)};
+  /* h is searched DIRECTLY by the variable-projection fit, so the start carries h itself */
+  double base_vp[4] = {base[3], log(base[4] > 1e-8 ? base[4] : 1e-8), base[5], base[6]};
 
   /* point estimates: full multi-start */
   mv_fit8(x, y, N, *cutx, starts, ns, MI, bounds, base_st6, a_pt);

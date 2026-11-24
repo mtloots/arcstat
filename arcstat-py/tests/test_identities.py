@@ -273,3 +273,40 @@ def test_equivalence_readings_match_high_precision_values():
     rv = a.eq_readings_vsl(0.3, 0.6)
     assert abs(rv[1] - 0.652733314402) <= 1e-7 * 0.66
     assert abs(rv[3] - 0.440653844715) <= 1e-7
+
+
+def test_kappa_readings_match_high_precision_values():
+    # mpmath, 50 digits: mu, sg, k, h, a, b, mode. Mirrors test-arck4.R.
+    nan = float("nan")
+    ref = [
+        (0, 1, -0.98, 0.2418, -0.618391710679162, -0.664133279975884, -0.376903116941754),
+        (0, 1, -0.98, 0.8088, -0.182328163643372, nan, -0.094726927684711),
+        (6, 1.3, -0.999999, 0.1, 5.09324965009938, 5.0416030219296, 5.41500013495375),
+        (0, 1, 0.2, 0.4, -0.591499322579312, -0.776714806468733, 0.13782667601799),
+        (0, 1, 0.0, 0.0, -1.0, -0.962423650119207, 0.0),
+        (0, 1, -0.4155, -1.5959, -2.09123825802291, nan, -1.08116330098459),
+        (0, 1, -0.9, -30, nan, nan, nan),
+        (4.92632094446957, 6.95102192620741, -0.98, 0.2418, 0.627866604553808, 0.309915953433158, 2.30645911455152),
+        (13.9330859822076, 28.8494200479927, -0.98, 0.8088, 8.6730242026808, nan, 11.2002690555755),
+    ]
+    for mu, sg, k, h, *want in ref:
+        got = a.k4_readings([1, 400, mu, sg, k, h])
+        assert got == a.k4_readings([1, 400, mu, sg, k, h], grid=400000) or math.isnan(got[1])
+        for g, w in zip(got, want):
+            assert math.isnan(g) == math.isnan(w)
+            if not math.isnan(w):
+                assert abs(g - w) < 1e-12
+
+
+def test_kappa_l_moment_ratios_match_high_precision_values():
+    got = a.k4_tau34(-0.98, 0.3)
+    for g, w in zip(got, (0.9793008357201542, 0.966575435477793, 49.58640438135162, 49.05639225332278)):
+        assert abs(g / w - 1) < 1e-12
+
+
+def test_companion_keeps_accuracy_near_beta_minus_one():
+    a1 = -0.6448948644172633
+    assert abs(a.eq_bstar(a1 + 1e-8) + 0.9999997679034622) < 1e-10
+    for be in (-0.9999, -0.6, -0.03):
+        for u in (1e-12, 0.01, 0.6, 0.9):
+            assert abs(a.bc_cdf(a.bc_q([u], -0.6, be), -0.6, be)[0] / u - 1) < 1e-10

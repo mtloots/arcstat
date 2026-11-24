@@ -9,11 +9,21 @@ k4_readings(theta, grid = 4000L)
 \arguments{
 \item{theta}{c(g0, g1, mu, sg, k, h)}
 
-\item{grid}{number of grid points for the dense evaluation}
+\item{grid}{ignored, kept so that existing calls work; the result does not depend on a grid}
 }
 \value{
 c(a = tangent reading, b = third-derivative reading, mode)
 }
 \description{
-The two standard induction-period readings of a fitted kappa curve
+Both readings are closed forms. The steepest point \code{mode} exists exactly when
+\eqn{k < 1}, \eqn{h < 1} and \eqn{hk < 1}; the third-derivative reading \code{b} exists when in
+addition \eqn{h < 1/2} and \eqn{hk < 1/2}. Where a reading does not exist it is \code{NaN}. Versions
+up to 0.3.1 searched a grid between the 0.1 and 99.9 per cent quantiles; with a heavy right tail
+(\eqn{k} near \eqn{-1}) the grid missed the steepest point and the tangent reading came out too low.
+}
+\examples{
+## the tangent at the steepest point meets the baseline at a
+th <- c(1, 400, 8, 2.5, -0.9, 0.2)
+r <- unname(k4_readings(th)); cdf <- k4_cdf(r[3], 8, 2.5, -0.9, 0.2)
+r[3] - cdf / k4_pdf(r[3], 8, 2.5, -0.9, 0.2) - r[1]
 }

@@ -13,6 +13,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include "arceq.h"
+#include "arceq2.h"
 
 /* Exact integral of q(u) = u^e h(u) over one cell [u0, u1] when h is taken linear between its
    node values h0 and h1 (e > -1). The singular factor u^e is integrated exactly, so the rule is
@@ -70,6 +71,23 @@ static double eq_root(double al, double be, int nt, const double *theta, int kin
   return 0.5 * (lo + hi);
 }
 
+/* The untilted beta kernel in closed form: u_c = alpha/(alpha+beta), u_b the quadratic root, Q the
+   incomplete beta. No grid is involved, so roots close to either end of (0,1) are not lost. */
+static void eq_readings_beta(double al, double be, double *out) {
+  double r[2];
+  out[0] = out[1] = out[2] = out[3] = out[4] = NAN;
+  if (!(al < 0.0) || !(be < 0.0)) return;                  /* q has no interior minimum */
+  arceq2_ub_quad(&al, &be, r);
+  if (!isfinite(r[0]) || !(r[0] < r[1])) return;
+  ib_par P; arceq2_ib_init(&P, al + 1.0, be + 1.0);
+  double Qc = arceq2_ib_lower(&P, log(r[1]) - log1p(-r[1]));
+  double Qb = arceq2_ib_lower(&P, log(r[0]) - log1p(-r[0]));
+  out[3] = r[1]; out[4] = r[0];
+  out[1] = Qc - exp((1.0 + al) * log(r[1]) + be * log1p(-r[1]));
+  out[2] = Qb;
+  out[0] = out[2] - out[1];
+}
+
 /* out[5] = D, a, b, u_c, u_b. Q(u) is the integral of q from ZERO, so a and b are quantile-domain
    values on the same footing as the closed forms (incomplete beta) for a beta kernel. The grid
    starts at 1e-5, not at zero; for alpha > -1 the mass on (0, 1e-5) is added and the singular
@@ -80,6 +98,7 @@ void arceq_readings(const double *alpha, const double *beta, const int *ntheta,
                     const double *theta, const int *ngrid, double *out) {
   int N = *ngrid, nt = *ntheta;
   double al = *alpha, be = *beta;
+  if (nt == 0 && al > -1.0 && be > -1.9) { eq_readings_beta(al, be, out); return; }
   double *u  = (double *)malloc((size_t)N * sizeof(double));
   double *q  = (double *)malloc((size_t)N * sizeof(double));
   double *gp = (double *)malloc((size_t)N * sizeof(double));
@@ -178,17 +197,27 @@ void arceq_readings_vsl(const double *lambda, const double *delta, const int *ng
   for (int i = 1; i < N; i++) if (q[i] < qmin) { qmin = q[i]; ic = i; }
   if (ic <= 10 || ic >= N - 10) { free(u); free(q); free(gp); free(gpp); return; }
   int ib = -1;
-  for (int i = 0; i + 1 < ic; i++) {
+  /* the smallest root may lie far below the first uniform nodes (lambda just below 1/2): scan
+     (1e-12, 1e-3) geometrically first */
+  double ublo = NAN;
+  for (int i = 0; i < 360 && !isfinite(ublo); i++) {
+    double ua = pow(10.0, -12.0 + 0.025 * i), uz = pow(10.0, -12.0 + 0.025 * (i + 1));
+    if (uz > u[ic]) break;
+    ublo = vsl_root(l, d, 1, ua, uz);
+  }
+  for (int i = 0; i + 1 < ic && !isfinite(ublo); i++) {
     if (u[i] < 1e-3) continue;
     double r0 = 2.0*gp[i]*gp[i] - gpp[i], r1 = 2.0*gp[i+1]*gp[i+1] - gpp[i+1];
     if ((r0 > 0 && r1 < 0) || (r0 < 0 && r1 > 0)) { ib = i; break; }
   }
-  if (ib < 0) { free(u); free(q); free(gp); free(gpp); return; }
-  double uc = u[ic], ub = u[ib];
+  if (ib < 0 && !isfinite(ublo)) { free(u); free(q); free(gp); free(gpp); return; }
+  double uc = u[ic], ub = isfinite(ublo) ? ublo : u[ib];
   double rc = vsl_root(l, d, 0, u[ic-1], u[ic+1]);
   if (isfinite(rc)) uc = rc;
-  double rb = vsl_root(l, d, 1, u[ib], u[ib+1]);
-  if (isfinite(rb)) ub = rb;
+  if (!isfinite(ublo)) {
+    double rb = vsl_root(l, d, 1, u[ib], u[ib+1]);
+    if (isfinite(rb)) ub = rb;
+  }
   double Q0 = (l > 0.0) ? 0.0 : vsl_Q(l, d, u[0]);
   double Qc = vsl_Q(l, d, uc) - Q0, Qb = vsl_Q(l, d, ub) - Q0;
   double qc = (1.0-d)*pow(uc, l-1.0) + d*pow(1.0-uc, l-1.0);

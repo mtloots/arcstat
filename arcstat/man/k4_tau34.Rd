@@ -9,10 +9,12 @@ k4_tau34(k, h, nodes = 200L)
 \arguments{
 \item{k, h}{shape parameters}
 
-\item{nodes}{number of Gauss-Legendre nodes}
+\item{nodes}{number of quadrature nodes, at least 200. The rule is the trapezoid after a map that
+removes both end singularities, and 200 nodes give full double precision.}
 }
 \value{
-c(tau3, tau4, l1, l2)
+c(tau3, tau4, l1, l2); NaN where the moments do not exist (\eqn{k \le -1} or
+  \eqn{hk \le -1} with \eqn{h < 0})
 }
 \description{
 Theoretical L-moment ratios of the standard kappa distribution

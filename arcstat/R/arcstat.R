@@ -824,8 +824,10 @@ k4_pdf <- function(x, mu=0, sg=1, k, h)
 
 #' Theoretical L-moment ratios of the standard kappa distribution
 #' @param k,h shape parameters
-#' @param nodes number of Gauss-Legendre nodes
-#' @return c(tau3, tau4, l1, l2)
+#' @param nodes number of quadrature nodes, at least 200. The rule is the trapezoid after a map that
+#'   removes both end singularities, and 200 nodes give full double precision.
+#' @return c(tau3, tau4, l1, l2); NaN where the moments do not exist (\eqn{k \le -1} or
+#'   \eqn{hk \le -1} with \eqn{h < 0})
 #' @export
 k4_tau34 <- function(k, h, nodes=200L)
   .C("arck4_tau34", as.double(k), as.double(h), as.integer(nodes), out=double(4))$out
@@ -874,9 +876,20 @@ k4_band_sample <- function(x, y, breaks, p=2)
      out=double(length(breaks)-1L))$out
 
 #' The two standard induction-period readings of a fitted kappa curve
+#'
+#' Both readings are closed forms. The steepest point \code{mode} exists exactly when
+#' \eqn{k < 1}, \eqn{h < 1} and \eqn{hk < 1}; the third-derivative reading \code{b} exists when in
+#' addition \eqn{h < 1/2} and \eqn{hk < 1/2}. Where a reading does not exist it is \code{NaN}. Versions
+#' up to 0.3.1 searched a grid between the 0.1 and 99.9 per cent quantiles; with a heavy right tail
+#' (\eqn{k} near \eqn{-1}) the grid missed the steepest point and the tangent reading came out too low.
 #' @param theta c(g0, g1, mu, sg, k, h)
-#' @param grid number of grid points for the dense evaluation
+#' @param grid ignored, kept so that existing calls work; the result does not depend on a grid
 #' @return c(a = tangent reading, b = third-derivative reading, mode)
+#' @examples
+#' ## the tangent at the steepest point meets the baseline at a
+#' th <- c(1, 400, 8, 2.5, -0.9, 0.2)
+#' r <- unname(k4_readings(th)); cdf <- k4_cdf(r[3], 8, 2.5, -0.9, 0.2)
+#' r[3] - cdf / k4_pdf(r[3], 8, 2.5, -0.9, 0.2) - r[1]
 #' @export
 k4_readings <- function(theta, grid=4000L){
   r <- .C("arck4_readings", as.double(theta), as.integer(grid), out=double(3))$out
@@ -885,9 +898,10 @@ k4_readings <- function(theta, grid=4000L){
 #' Deterministic kappa fits: L-moment shape inversion, quantile-domain arc-length shape fit,
 #' curve-domain NLS and NALR (banded arc lengths of the running-median presmoothed polyline)
 #' @param t3,t4 target sample L-moment ratios
-#' @param nodes number of Gauss-Legendre nodes for the theoretical ratios
+#' @param nodes number of quadrature nodes for the theoretical ratios (at least 200 are used)
 #' @param y response vector (sorted internally where required)
-#' @param bands two-column matrix of quantile bands
+#' @param bands two-column matrix of quantile bands. A band that ends at one has infinite model
+#'   length unless \eqn{k > 0}, so such a band excludes \eqn{k \le 0}.
 #' @param x data vector
 #' @param J number of curve bands
 #' @param lambda anchor weight
@@ -939,13 +953,14 @@ k4_fit_nalr <- function(x, y, start, J=12L, lambda=1, w=9L, p=2){
 #' @param ngrid evaluation grid size
 #' @details The quantile function \eqn{Q(u)} is the integral of \eqn{q} from zero, so \code{a}
 #'   (tangent reading) and \code{b} (derivative reading) are quantile values on the same footing
-#'   as \code{\link{bc_q}}. The grid starts at \eqn{10^{-5}}; for \eqn{\alpha > -1} the mass below
-#'   the first node is added and the singular power factor is integrated exactly on every cell,
-#'   and \code{uc} and \code{ub} are refined between neighbouring nodes. For the beta kernel the
-#'   readings agree with the incomplete-beta values to about \eqn{10^{-8}} relative. Versions up to
-#'   0.3.1 started the integral at the first node with a trapezoid, which lowered \code{a} and
-#'   \code{b} by up to 5 per cent for \eqn{\alpha} between \eqn{-0.6435} and \eqn{-0.505}; the gap
-#'   \code{D} was almost unaffected.
+#'   as \code{\link{bc_q}}. Without a tilt (and for \eqn{\alpha > -1}) everything is in closed form
+#'   and \code{ngrid} has no effect. With a tilt the readings are located on a grid from
+#'   \eqn{10^{-5}} to \eqn{1 - 10^{-5}} and refined; for \eqn{\alpha > -1} the mass below the first
+#'   node is added and the singular power factor is integrated exactly on every cell, with an error
+#'   of about \eqn{10^{-8}}; a derivative reading below \eqn{u = 3\times 10^{-4}} is not found there.
+#'   Versions up to 0.3.1 started the integral at the first node with a trapezoid, which lowered
+#'   \code{a} and \code{b} by up to 5 per cent for \eqn{\alpha} between \eqn{-0.6435} and
+#'   \eqn{-0.505}; the gap \code{D} was almost unaffected.
 #' @return c(D, a, b, u_c, u_b); NA when the geometry is invalid
 #' @export
 eq_readings <- function(alpha, beta, theta=numeric(0), ngrid=20001L){
@@ -1088,7 +1103,8 @@ eq_bstar <- function(alpha)
 #' @param awin two-element admissible window in alpha, passed as lower and upper bounds
 #' @param thref three by four matrix of reference thetas, one row per reference member
 #' @param seed seed for the per-replicate splitmix64 streams, so a run reproduces exactly
-#' @param maxit Nelder--Mead iteration cap per pass
+#' @param maxit Nelder--Mead iteration cap per pass. Kept but without effect in \code{eqfit_msim}
+#'   and \code{eqfit_nullT}, whose profiled minimum is a global search with fixed internal limits.
 #' @return All of these return plain R objects rather than a class, so they can be compared
 #'   element by element against the Python front end.
 #'   \code{eqfit_bc} returns a list with \code{th}, the fitted six-parameter vector,
@@ -1279,9 +1295,8 @@ k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
 #'   on \eqn{h} is admissible and meaningful: it admits the generalised extreme value
 #'   distribution, the \eqn{h \to 0} member of the family, and with \eqn{k = 0} the Gumbel.
 #' @param hfix hold \eqn{h} at this value and fit the remaining three parameters, which is how a
-#'   submodel is fitted in its own right; \code{NA} (the default) fits all four. Because \eqn{h} is
-#'   searched on the log scale, \eqn{h = 0} is unreachable by the free search, which creeps toward
-#'   it and reports a spurious small value instead of naming the submodel. Choosing between the two
+#'   submodel is fitted in its own right; \code{NA} (the default) fits all four. \eqn{h} is searched
+#'   directly, so \eqn{h = 0} is an ordinary point of the free search. Choosing between the two
 #'   fits is model selection between a nested pair, and is left to the caller.
 #' @return a list with \code{theta} in the six-vector convention \code{(g0, g1, mu, sg, k, h)},
 #'   the fitted \code{drift}, and the residual sum of squares \code{rss}.

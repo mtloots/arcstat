@@ -367,11 +367,22 @@ static double arcc_q_of_rho(double u, const double *rr, const double *ri, int M)
 
 void arcc_qmin_rho(const double *rhore, const double *rhoim, const int *nm, const int *nodes,
                    double *out) {
-    int j, N = *nodes;
+    int j, it, N = *nodes, jb = 0;
     double mn = 1.0e300, v;
     for (j = 0; j < N; j++) {
         v = arcc_q_of_rho((double) j / (double) N, rhore, rhoim, *nm);
-        if (v < mn) mn = v;
+        if (v < mn) { mn = v; jb = j; }
+    }
+    /* the node minimum overstates the minimum by up to q''/(8 N^2): refine inside its two cells */
+    {
+        double lo = ((double) jb - 1.0) / (double) N, hi = ((double) jb + 1.0) / (double) N;
+        for (it = 0; it < 60; it++) {
+            double a = lo + 0.381966011250105 * (hi - lo), b = hi - 0.381966011250105 * (hi - lo);
+            double fa = arcc_q_of_rho(a, rhore, rhoim, *nm), fb = arcc_q_of_rho(b, rhore, rhoim, *nm);
+            if (fa < mn) mn = fa;
+            if (fb < mn) mn = fb;
+            if (fa < fb) hi = b; else lo = a;
+        }
     }
     out[0] = mn;
 }

@@ -174,18 +174,54 @@ test_that("eq_readings matches high-precision values, including the singular lef
                tolerance = 1e-10)
 })
 
-test_that("the profiled minimiser does not stop above the minimum it can reach", {
+test_that("the companion distribution keeps full accuracy as beta approaches -1", {
+  ## mpmath 2F1 at 50 digits: int_0^u t^alpha (1-t)^beta
+  expect_equal(bc_q(c(0.1, 0.7, 0.999), -0.5, -1 + 1e-12),
+               c(0.6549003004744937, 2.419870242670848, 8.293549452473255), tolerance = 1e-12)
+  for (be in c(-0.9999, -0.97, -0.6, -0.03)) {
+    u <- c(1e-12, 1e-6, 0.01, 0.3, 0.6, 0.9)
+    expect_equal(bc_cdf(bc_q(u, -0.6, be), -0.6, be), u, tolerance = 1e-10)
+    x <- bc_q(0.4, -0.6, be)
+    expect_equal(bc_pdf(x, -0.6, be), 0.4^0.6 * 0.6^(-be), tolerance = 1e-11)
+  }
+  ## the equivalence curve runs to beta = -1 at alpha = -0.6448948644172633 (mpmath)
+  a1 <- -0.6448948644172633
+  expect_equal(eq_bstar(a1 + 1e-5), -0.9997679372917829, tolerance = 1e-10)
+  expect_equal(eq_bstar(a1 + 1e-8), -0.9999997679034622, tolerance = 1e-10)
+})
+
+test_that("derivative readings close to the left end are found", {
+  ## lambda just below 1/2: the van Staden-Loots root is far below the first grid nodes (mpmath)
+  r <- eq_readings_vsl(0.4889510944437077, 0.6275903967237927)
+  expect_equal(unname(r[c("a", "b", "uc", "ub")]),
+               c(0.20664202771384818, 0.008171656037672911, 0.41450203060804236, 9.242176539333557e-05),
+               tolerance = 1e-9)
+})
+
+test_that("the profiled minimiser reaches the minimum a much stronger search finds", {
   skip_on_cran()
-  ## Null draw 0 of the manifold test at alpha = -0.52, seed 912, n = 400, noise 2, design and
-  ## curve as in the equivalence study. Versions up to 0.3.1 returned 0.292312001128; a restarted
-  ## search reaches 0.1354 on the same data, and the statistic at the truth (1.865) bounds both.
-  alpha1 <- -0.6449
+  ## Null draws of the manifold test (n = 400, noise 2, design and curve as in the equivalence
+  ## study). The values are the minima of a separate search (dense grid, simplex restarts,
+  ## differential evolution, explicit scan of the cell faces; about 2e5 evaluations per draw).
+  alpha1 <- -0.6448948644172633
   als <- seq(alpha1 + 1e-3, -0.502, length.out = 40)
   bs <- vapply(als, eq_bstar, numeric(1)); ok <- is.finite(bs)
   curve <- cbind(als[ok], bs[ok])
-  th0 <- c(1, 400, 0, 20, -0.52, approx(curve[, 1], curve[, 2], xout = -0.52)$y)
-  Tn <- eqfit_nullT(400L, 2, 1L, th0, c(0, 0, 0), curve, c(-0.641, -0.506), seed = 912L)
-  expect_true(is.finite(Tn))
-  expect_lt(Tn, 0.292312001128 - 1e-3)
-  expect_lt(Tn, 1.86)
+  f <- approxfun(curve[, 1], curve[, 2])
+  tn <- function(al, seed, R) eqfit_nullT(400L, 2, R, c(1, 400, 0, 20, al, f(al)), c(0, 0, 0), curve,
+                                          c(-0.641, -0.506), seed = seed)
+  expect_lt(max(abs(tn(-0.52, 912L, 3L) - c(0.351919444297, 0.0109757789332, 9.88224004871e-05))), 1e-6)
+  expect_lt(max(abs(tn(-0.60, 911L, 1L) - 0.061589603)), 1e-6)
+})
+
+test_that("the score statistic is smooth in its parameters", {
+  ## the mean curve was once interpolated on 2049 levels, which made the differentiated curve a
+  ## step function and the statistic rough on every scale
+  set.seed(4)
+  x <- 20 * (0:199) / 199
+  y <- 1 + 400 * x / 20 + rnorm(200, sd = 2)
+  s <- seq(0, 1e-4, length.out = 41)
+  v <- vapply(s, function(d) eqfit_score_at(x, y, 0.1 + d, 20.5, -0.6, -0.378), numeric(1))
+  fit <- lm.fit(cbind(1, s * 1e4, (s * 1e4)^2), v)
+  expect_lt(max(abs(fit$residuals)) / abs(mean(v)), 1e-8)      # 6e-4 with the interpolated curve
 })

@@ -19,11 +19,12 @@ k4_fit_nalr(x, y, start, J = 12L, lambda = 1, w = 9L, p = 2)
 \arguments{
 \item{t3, t4}{target sample L-moment ratios}
 
-\item{nodes}{number of Gauss-Legendre nodes for the theoretical ratios}
+\item{nodes}{number of quadrature nodes for the theoretical ratios (at least 200 are used)}
 
 \item{y}{response vector (sorted internally where required)}
 
-\item{bands}{two-column matrix of quantile bands}
+\item{bands}{two-column matrix of quantile bands. A band that ends at one has infinite model
+length unless \eqn{k > 0}, so such a band excludes \eqn{k \le 0}.}
 
 \item{start}{transformed start vector}
 

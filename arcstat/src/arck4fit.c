@@ -157,7 +157,7 @@ static void nmd(double (*f)(const double *, void *), void *ctx, const double *st
   *fout = fv[lo];
 }
 
-/* starts is nstart x 4, row major: (mu, log sigma, k, log h).
+/* starts is nstart x 4, row major: (mu, log sigma, k, h).
  * bounds is (k_lo, k_hi, h_lo, h_hi). out receives (g0, m, g1, mu, sigma, k, h, rss). */
 /* hfix = NaN asks for the free four-parameter fit; any finite hfix holds h at that value and
  * searches the other three, which is how named SUBMODELS are fitted in their own right: h = 0 is

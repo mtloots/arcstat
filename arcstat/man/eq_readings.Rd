@@ -28,12 +28,13 @@ quantile densities q(u) = u^alpha (1-u)^beta exp(sum theta_j P_j(u))
 }
 \details{
 The quantile function \eqn{Q(u)} is the integral of \eqn{q} from zero, so \code{a}
-(tangent reading) and \code{b} (derivative reading) are quantile values on the same footing
-as \code{\link{bc_q}}. The grid starts at \eqn{10^{-5}}; for \eqn{\alpha > -1} the mass below
-the first node is added and the singular power factor is integrated exactly on every cell,
-and \code{uc} and \code{ub} are refined between neighbouring nodes. For the beta kernel the
-readings agree with the incomplete-beta values to about \eqn{10^{-8}} relative. Versions up to
-0.3.1 started the integral at the first node with a trapezoid, which lowered \code{a} and
-\code{b} by up to 5 per cent for \eqn{\alpha} between \eqn{-0.6435} and \eqn{-0.505}; the gap
-\code{D} was almost unaffected.
+  (tangent reading) and \code{b} (derivative reading) are quantile values on the same footing
+  as \code{\link{bc_q}}. Without a tilt (and for \eqn{\alpha > -1}) everything is in closed form
+  and \code{ngrid} has no effect. With a tilt the readings are located on a grid from
+  \eqn{10^{-5}} to \eqn{1 - 10^{-5}} and refined; for \eqn{\alpha > -1} the mass below the first
+  node is added and the singular power factor is integrated exactly on every cell, with an error
+  of about \eqn{10^{-8}}; a derivative reading below \eqn{u = 3\times 10^{-4}} is not found there.
+  Versions up to 0.3.1 started the integral at the first node with a trapezoid, which lowered
+  \code{a} and \code{b} by up to 5 per cent for \eqn{\alpha} between \eqn{-0.6435} and
+  \eqn{-0.505}; the gap \code{D} was almost unaffected.
 }

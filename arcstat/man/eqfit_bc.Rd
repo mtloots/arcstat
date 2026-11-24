@@ -60,7 +60,8 @@ eq_E_sweep(alpha, betas)
 
 \item{curve}{two-column matrix (alpha, beta) of the traced equivalence curve}
 
-\item{maxit}{Nelder--Mead iteration cap per pass}
+\item{maxit}{Nelder--Mead iteration cap per pass. Kept but without effect in \code{eqfit_msim}
+and \code{eqfit_nullT}, whose profiled minimum is a global search with fixed internal limits.}
 
 \item{th}{a fitted theta, used to warm-start the bootstrap}
 

@@ -113,70 +113,69 @@ static void ef_blockdraw(const double *m0, const double *r0, int n, int bl,
 }
 
 /* ---- the beta-companion mean curve m(x) = g0 + g1 * F(z; alpha, beta) ----
- * F inverts the scaled incomplete beta. Point-wise numerical inversion (arceq2_bc_cdf) costs
- * thirty-odd forward evaluations per point and dominated every fit; the curve is instead
- * inverted through one forward quantile grid per evaluation -- the quantile is strictly
- * increasing, so monotone interpolation of the inverse is exact to grid resolution, far below
- * the fitting noise. */
-#define EF_NG 2049
-/* The inverse-grid depends ONLY on the two shape exponents, never on the location, the scale or
- * the affine layer. Building it is the dominant cost of every mean-curve evaluation (2049
- * incomplete-beta inversions), so it is split out here and reused: a score evaluation perturbs
- * mu and sigma for four of its six Jacobian columns, and those four share the base grid with
- * the curve itself. Five builds per evaluation instead of nine, with the grid values, and
- * therefore every downstream number, bit for bit unchanged. */
-static void ef_grid(double al, double be, double *ug, double *Qg, double *Bab) {
-  int ng = EF_NG;
-  for (int i = 0; i < ng; i++) ug[i] = 1e-9 + (1.0 - 2e-9) * (double)i / (double)(ng - 1);
-  arceq2_bc_q(&ng, ug, &al, &be, Qg);
-  *Bab = exp(ef_lbeta(al + 1.0, be + 1.0));
-}
-
-/* mean curve at a precomputed shape grid */
-static void ef_mbc_g(const double *x, int n, const double *th, double *out,
-                     const double *ug, const double *Qg, double Bab) {
-  double g0 = th[0], g1 = th[1], mu = th[2], sr = th[3];
-  int ng = EF_NG;
-  for (int i = 0; i < n; i++) {
-    double z = (x[i] - mu) / sr;
-    if (z < 1e-9) z = 1e-9;
-    if (z > 1.0 - 1e-9) z = 1.0 - 1e-9;
-    double t = z * Bab, u;
-    if (t <= Qg[0]) u = ug[0];
-    else if (t >= Qg[ng - 1]) u = ug[ng - 1];
-    else {
-      int lo = 0, hi = ng - 1;
-      while (hi - lo > 1) { int mid = (lo + hi) / 2; if (Qg[mid] <= t) lo = mid; else hi = mid; }
-      double w = (t - Qg[lo]) / (Qg[lo + 1] - Qg[lo]);
-      u = ug[lo] + w * (ug[lo + 1] - ug[lo]);
-    }
-    out[i] = g0 + g1 * u;
-  }
-}
-
+ * F inverts the scaled incomplete beta. Each point is solved to machine precision by a cubic
+ * iteration on the logit scale that starts from its neighbour's solution (two to three incomplete
+ * betas per point on sorted data). Earlier versions interpolated the inverse linearly on 2049
+ * equally spaced quantile levels, which was up to 2e-4 wrong in F on the first cells and, worse,
+ * made every numerical derivative of the curve a step function. */
+#define EF_ZMIN 1e-9
 static void ef_mbc(const double *x, int n, const double *th, double *out, double *zbuf) {
   (void)zbuf;
-  double g0 = th[0], g1 = th[1], mu = th[2], sr = th[3], al = th[4], be = th[5];
-  double Bab = exp(ef_lbeta(al + 1.0, be + 1.0));
-  double ug[EF_NG], Qg[EF_NG];
-  int ng = EF_NG;
-  for (int i = 0; i < ng; i++) ug[i] = 1e-9 + (1.0 - 2e-9) * (double)i / (double)(ng - 1);
-  arceq2_bc_q(&ng, ug, &al, &be, Qg);
+  double g0 = th[0], g1 = th[1], mu = th[2], sr = th[3];
+  ib_par P; arceq2_ib_init(&P, th[4] + 1.0, th[5] + 1.0);
+  double s = NAN;
   for (int i = 0; i < n; i++) {
     double z = (x[i] - mu) / sr;
-    if (z < 1e-9) z = 1e-9;
-    if (z > 1.0 - 1e-9) z = 1.0 - 1e-9;
-    double t = z * Bab, u;
-    if (t <= Qg[0]) u = ug[0];
-    else if (t >= Qg[ng - 1]) u = ug[ng - 1];
-    else {
-      int lo = 0, hi = ng - 1;
-      while (hi - lo > 1) { int mid = (lo + hi) / 2; if (Qg[mid] <= t) lo = mid; else hi = mid; }
-      double w = (t - Qg[lo]) / (Qg[lo + 1] - Qg[lo]);
-      u = ug[lo] + w * (ug[lo + 1] - ug[lo]);
-    }
-    out[i] = g0 + g1 * u;
+    if (z < EF_ZMIN) z = EF_ZMIN;
+    if (z > 1.0 - EF_ZMIN) z = 1.0 - EF_ZMIN;
+    s = arceq2_ib_at_frac(&P, z, s);
+    out[i] = g0 + g1 / (1.0 + exp(-s));
+    if (!isfinite(out[i])) { out[i] = NAN; s = NAN; }
   }
+}
+
+/* F and its four derivatives dF/d(mu, sigma, alpha, beta) at the design; columns of length n in D
+ * (F first). At a point outside the support, where the curve is clamped, the derivatives are zero.
+ * With I(u; a, b) the regularised incomplete beta, F solves I(F) = z, so dF/dz = f = 1/I'(F) and
+ * dF/da = -f dI/da at fixed u; the parameter derivative is a central difference of the smaller
+ * tail of I, whose error is about 1e-10. Returns the number of points inside the support. */
+static int ef_jac(const double *x, int n, double mu, double sg, double al, double be, double *D) {
+  double a = al + 1.0, b = be + 1.0, h = 1e-5;
+  if (h > 0.2 * a) h = 0.2 * a;
+  if (h > 0.2 * b) h = 0.2 * b;
+  ib_par P, Pap, Pam, Pbp, Pbm;
+  arceq2_ib_init(&P, a, b);
+  arceq2_ib_init(&Pap, a + h, b); arceq2_ib_init(&Pam, a - h, b);
+  arceq2_ib_init(&Pbp, a, b + h); arceq2_ib_init(&Pbm, a, b - h);
+  int nin = 0;
+  double s = NAN;
+  for (int i = 0; i < n; i++) {
+    double z = (x[i] - mu) / sg;
+    int inside = (z > EF_ZMIN && z < 1.0 - EF_ZMIN);
+    if (z < EF_ZMIN) z = EF_ZMIN;
+    if (z > 1.0 - EF_ZMIN) z = 1.0 - EF_ZMIN;
+    s = arceq2_ib_at_frac(&P, z, s);
+    double lu, lv;
+    if (s > 0.0) { lu = -log1p(exp(-s)); lv = lu - s; } else { lv = -log1p(exp(s)); lu = lv + s; }
+    D[i] = exp(lu);
+    if (!isfinite(D[i])) { D[i] = NAN; s = NAN; }
+    D[n + i] = D[2 * (size_t)n + i] = D[3 * (size_t)n + i] = D[4 * (size_t)n + i] = 0.0;
+    if (!inside) continue;
+    nin++;
+    double f = P.T * exp(-al * lu - be * lv), dIa, dIb;
+    if (z <= 0.5) {
+      dIa = arceq2_ib_lower(&Pap, s) / Pap.T - arceq2_ib_lower(&Pam, s) / Pam.T;
+      dIb = arceq2_ib_lower(&Pbp, s) / Pbp.T - arceq2_ib_lower(&Pbm, s) / Pbm.T;
+    } else {
+      dIa = arceq2_ib_upper(&Pam, s) / Pam.T - arceq2_ib_upper(&Pap, s) / Pap.T;
+      dIb = arceq2_ib_upper(&Pbm, s) / Pbm.T - arceq2_ib_upper(&Pbp, s) / Pbp.T;
+    }
+    D[n + i] = -f / sg;
+    D[2 * (size_t)n + i] = -z * f / sg;
+    D[3 * (size_t)n + i] = -f * dIa / (2.0 * h);
+    D[4 * (size_t)n + i] = -f * dIb / (2.0 * h);
+  }
+  return nin;
 }
 
 /* ---- beta-companion SSE objective, free (d=6) or constrained to a curve table (d=5) ---- */
@@ -371,81 +370,57 @@ void arceqfit_k4eq_boot(const double *x, const double *y, const int *n, const do
   free(m0); free(r0);
 }
 
-/* ---- the exact score statistic of the manifold test: F of the residual regression on the
- * six numerically differentiated Jacobian columns of the companion mean curve ---- */
-static double ef_scoreF6(const double *x, const double *y, int n, const double *th,
-                         double *wk /* 9n scratch */) {
-  double *e0 = wk, *zb = wk + n, *mp = wk + 2 * n, *mm = wk + 3 * n, *J = wk + 4 * n; /* J: 6n? */
-  /* layout: e0, zb, mp, mm each n; J needs 6n -> total 10n supplied by caller */
-  ef_mbc(x, n, th, e0, zb);
-  for (int i = 0; i < n; i++) e0[i] = y[i] - e0[i];
-  for (int j = 0; j < 6; j++) {
-    double tp[6], tm[6];
-    memcpy(tp, th, sizeof(tp)); memcpy(tm, th, sizeof(tm));
-    double h = 1e-5 * (fabs(th[j]) > 1.0 ? fabs(th[j]) : 1.0);
-    tp[j] += h; tm[j] -= h;
-    ef_mbc(x, n, tp, mp, zb);
-    ef_mbc(x, n, tm, mm, zb);
-    for (int i = 0; i < n; i++) J[(size_t)j * n + i] = (mp[i] - mm[i]) / (2.0 * h);
-  }
-  /* normal equations with a relative ridge; e1 = e0 - J beta */
-  double G[36], v[6];
-  for (int a = 0; a < 6; a++) {
-    v[a] = 0.0;
-    for (int i = 0; i < n; i++) v[a] += J[(size_t)a * n + i] * e0[i];
-    for (int b2 = a; b2 < 6; b2++) {
-      double s = 0.0;
-      for (int i = 0; i < n; i++) s += J[(size_t)a * n + i] * J[(size_t)b2 * n + i];
-      G[a * 6 + b2] = G[b2 * 6 + a] = s;
-    }
-  }
-  /* Degeneracy guard: at a parameter point whose mean curve is (near-)flat over the design
-   * the Jacobian columns vanish, the ridge keeps the solve finite, and the statistic returns
-   * ~0 -- an escape hatch a profiling minimiser will find and live in. The statistic is only
-   * meaningful where the model is locally identifiable, so refuse rank-deficient Jacobians:
-   * the intercept column always has ||.||^2 = n, hence the relative floor on the smallest
-   * Gram diagonal detects any vanished column. */
-  double dmx = 0.0, dmn = 0.0;
-  for (int a = 0; a < 6; a++) {
-    double d = G[a * 6 + a];
-    if (a == 0 || d > dmx) dmx = d;
-    if (a == 0 || d < dmn) dmn = d;
+/* ---- the exact score statistic of the manifold test: F of the residual regression on the six
+ * Jacobian columns of the companion mean curve ---- */
+/* T from the residual e0 (length n) and the five columns D of ef_jac; the intercept is added here.
+ * The projection is an orthogonalisation (Gram-Schmidt applied twice) of unit-scaled columns, so
+ * the value does not depend on the scale of the columns and carries no ridge. Rank-deficient
+ * Jacobians are refused: at a point whose mean curve is (near-)flat over the design the columns
+ * vanish or coincide, the statistic tends to zero, and a profiling minimiser would live there. */
+static double ef_score_core(const double *e0, int n, const double *D, double *Qm /* 6n */) {
+  double dmx = (double)n, dmn = (double)n, nrm[6];
+  nrm[0] = sqrt((double)n);
+  for (int a = 1; a < 6; a++) {
+    const double *c = D + (size_t)(a - 1) * n;
+    double d = 0.0;
+    for (int i = 0; i < n; i++) d += c[i] * c[i];
+    if (!isfinite(d)) return NAN;
+    if (d > dmx) dmx = d;
+    if (d < dmn) dmn = d;
+    nrm[a] = sqrt(d);
   }
   if (!(dmx > 0.0) || dmn < 1e-10 * dmx) return NAN;
-  double tr = 0.0; for (int a = 0; a < 6; a++) tr += G[a * 6 + a];
-  for (int a = 0; a < 6; a++) G[a * 6 + a] += 1e-12 * (tr > 0 ? tr : 1.0);
-  /* Cholesky solve */
-  double L[36]; memset(L, 0, sizeof(L));
+  double sse0 = 0.0, num = 0.0;
+  for (int i = 0; i < n; i++) sse0 += e0[i] * e0[i];
   for (int a = 0; a < 6; a++) {
-    for (int b2 = 0; b2 <= a; b2++) {
-      double s = G[a * 6 + b2];
-      for (int k2 = 0; k2 < b2; k2++) s -= L[a * 6 + k2] * L[b2 * 6 + k2];
-      if (a == b2) { if (s <= 0) return NAN; L[a * 6 + a] = sqrt(s); }
-      else L[a * 6 + b2] = s / L[b2 * 6 + b2];
-    }
+    double *q = Qm + (size_t)a * n;
+    if (a == 0) for (int i = 0; i < n; i++) q[i] = 1.0 / nrm[0];
+    else        for (int i = 0; i < n; i++) q[i] = D[(size_t)(a - 1) * n + i] / nrm[a];
+    for (int pass = 0; pass < 2; pass++)
+      for (int c = 0; c < a; c++) {
+        const double *p = Qm + (size_t)c * n;
+        double dt = 0.0;
+        for (int i = 0; i < n; i++) dt += p[i] * q[i];
+        for (int i = 0; i < n; i++) q[i] -= dt * p[i];
+      }
+    double nn = 0.0;
+    for (int i = 0; i < n; i++) nn += q[i] * q[i];
+    nn = sqrt(nn);
+    if (!(nn > 1e-8)) return NAN;
+    double pr = 0.0;
+    for (int i = 0; i < n; i++) { q[i] /= nn; pr += q[i] * e0[i]; }
+    num += pr * pr;
   }
-  double w1[6], beta[6];
-  for (int a = 0; a < 6; a++) {
-    double s = v[a];
-    for (int k2 = 0; k2 < a; k2++) s -= L[a * 6 + k2] * w1[k2];
-    w1[a] = s / L[a * 6 + a];
-  }
-  for (int a = 5; a >= 0; a--) {
-    double s = w1[a];
-    for (int k2 = a + 1; k2 < 6; k2++) s -= L[k2 * 6 + a] * beta[k2];
-    beta[a] = s / L[a * 6 + a];
-  }
-  double sse0 = 0.0, sse1 = 0.0;
-  for (int i = 0; i < n; i++) {
-    double fit = 0.0;
-    for (int j = 0; j < 6; j++) fit += J[(size_t)j * n + i] * beta[j];
-    double e1 = e0[i] - fit;
-    sse0 += e0[i] * e0[i]; sse1 += e1 * e1;
-  }
-  if (sse1 <= 0) return NAN;
-  double num = sse0 - sse1;
-  if (num < 0.0) num = 0.0;                /* roundoff can push the difference epsilon-negative */
+  double sse1 = sse0 - num;
+  if (!(sse1 > 0.0)) return NAN;
   return (num / 6.0) / (sse1 / (double)(n - 6));
+}
+static double ef_scoreF6(const double *x, const double *y, int n, const double *th,
+                         double *wk /* 12n scratch */) {
+  double *e0 = wk, *D = wk + n, *Qm = wk + 6 * (size_t)n;
+  ef_jac(x, n, th[2], th[3], th[4], th[5], D);
+  for (int i = 0; i < n; i++) e0[i] = y[i] - th[0] - th[1] * D[i];
+  return ef_score_core(e0, n, D, Qm);
 }
 
 /* profiled minimum of the score statistic over the manifold interpolant.
@@ -466,115 +441,34 @@ typedef struct {
  * invariant to (gamma0, gamma1) and the statistic's minimum over them is attained at the
  * least-squares fit of y on [1, F]. The remaining Jacobian columns are used as dF/d(mu, sg,
  * al, be) -- the true columns times gamma1, a scaling that leaves their span unchanged. */
+static double ef_affine_resid(const double *y, const double *F, int n, double *e0) {
+  double sF = 0.0, sFF = 0.0, sy = 0.0, sFy = 0.0;
+  for (int i = 0; i < n; i++) { sF += F[i]; sy += y[i]; }
+  sF /= n; sy /= n;
+  for (int i = 0; i < n; i++) { sFF += (F[i] - sF) * (F[i] - sF); sFy += (F[i] - sF) * (y[i] - sy); }
+  if (!(sFF > 1e-12 * (n * 1.0))) return NAN;          /* F ~ constant: degenerate */
+  double g1 = sFy / sFF, sse = 0.0;
+  for (int i = 0; i < n; i++) { e0[i] = (y[i] - sy) - g1 * (F[i] - sF); sse += e0[i] * e0[i]; }
+  return sse;
+}
 static double ef_scoreF6p(const double *x, const double *y, int n,
-                          double mu, double sg, double al, double be, double *wk) {
-  /* Workspace layout: [e0 | reserved | Fp | Fm | J], each n long. The second slot is not used
-     by this routine; the pointers below carry explicit offsets, so it stays reserved rather
-     than being reclaimed, and the caller's allocation is unchanged. */
-  double *e0 = wk, *Fp = wk + 2 * n, *Fm = wk + 3 * n, *J = wk + 4 * n;
-  double thF[6] = { 0.0, 1.0, mu, sg, al, be };
-  double ug[EF_NG], Qg[EF_NG], Bab;
-  ef_grid(al, be, ug, Qg, &Bab);            /* the base shape grid, reused four times below */
+                          double mu, double sg, double al, double be, double *wk /* 12n */) {
+  double *e0 = wk, *D = wk + n, *Qm = wk + 6 * (size_t)n;
   /* Identifiability floor, independent of any caller-side window: the six columns must be
    * informed by more than a handful of observations. Design points outside the fitted
-   * support are clamped to the endpoints by ef_mbc and contribute nothing to any column,
+   * support are clamped to the endpoints and contribute nothing to any column,
    * so a support that has slid off the design leaves the statistic supported on the few
    * interior points -- and a statistic supported on fewer points than it has columns is
-   * degenerate, whatever its Gram conditioning looks like. */
+   * degenerate, whatever its conditioning looks like. */
   int nin = 0;
   for (int i = 0; i < n; i++) {
     double z = (x[i] - mu) / sg;
-    if (z > 1e-9 && z < 1.0 - 1e-9) nin++;
+    if (z > EF_ZMIN && z < 1.0 - EF_ZMIN) nin++;
   }
   if (nin < 12 || nin < n / 10) return NAN;
-  ef_mbc_g(x, n, thF, J + n, ug, Qg, Bab);            /* column 1: F itself */
-  for (int i = 0; i < n; i++) J[i] = 1.0;             /* column 0: intercept */
-  /* least squares of y on [1, F] */
-  double s1 = 0, sF = 0, sFF = 0, sy = 0, sFy = 0;
-  for (int i = 0; i < n; i++) {
-    double F = J[n + i];
-    s1 += 1.0; sF += F; sFF += F * F; sy += y[i]; sFy += F * y[i];
-  }
-  double det = s1 * sFF - sF * sF;
-  if (!(fabs(det) > 1e-12 * (s1 * sFF + 1.0))) return NAN;   /* F ~ constant: degenerate */
-  double g1 = (s1 * sFy - sF * sy) / det, g0 = (sy - g1 * sF) / s1;
-  double sse0 = 0.0;
-  for (int i = 0; i < n; i++) {
-    e0[i] = y[i] - g0 - g1 * J[n + i];
-    sse0 += e0[i] * e0[i];
-  }
-  /* central-difference columns dF/d(mu, sg, al, be) */
-  static const int idx[4] = { 2, 3, 4, 5 };
-  for (int j = 0; j < 4; j++) {
-    double tp[6], tm[6];
-    memcpy(tp, thF, sizeof(tp)); memcpy(tm, thF, sizeof(tm));
-    double v = thF[idx[j]];
-    double h = 1e-5 * (fabs(v) > 1.0 ? fabs(v) : 1.0);
-    tp[idx[j]] += h; tm[idx[j]] -= h;
-    if (idx[j] < 4) {                       /* mu, sigma: shape unchanged, so reuse the grid */
-      ef_mbc_g(x, n, tp, Fp, ug, Qg, Bab);
-      ef_mbc_g(x, n, tm, Fm, ug, Qg, Bab);
-    } else {                                /* alpha, beta: the grid itself moves */
-      double ugp[EF_NG], Qgp[EF_NG], Babp;
-      ef_grid(tp[4], tp[5], ugp, Qgp, &Babp);
-      ef_mbc_g(x, n, tp, Fp, ugp, Qgp, Babp);
-      ef_grid(tm[4], tm[5], ugp, Qgp, &Babp);
-      ef_mbc_g(x, n, tm, Fm, ugp, Qgp, Babp);
-    }
-    for (int i = 0; i < n; i++) J[(size_t)(j + 2) * n + i] = (Fp[i] - Fm[i]) / (2.0 * h);
-  }
-  /* ridge-stabilised projection of e0 on all six columns, with the degeneracy guard of
-   * ef_scoreF6 */
-  double G[36], v6[6];
-  for (int a = 0; a < 6; a++) {
-    v6[a] = 0.0;
-    for (int i = 0; i < n; i++) v6[a] += J[(size_t)a * n + i] * e0[i];
-    for (int b2 = a; b2 < 6; b2++) {
-      double s = 0.0;
-      for (int i = 0; i < n; i++) s += J[(size_t)a * n + i] * J[(size_t)b2 * n + i];
-      G[a * 6 + b2] = G[b2 * 6 + a] = s;
-    }
-  }
-  double dmx = 0.0, dmn = 0.0;
-  for (int a = 0; a < 6; a++) {
-    double d = G[a * 6 + a];
-    if (a == 0 || d > dmx) dmx = d;
-    if (a == 0 || d < dmn) dmn = d;
-  }
-  if (!(dmx > 0.0) || dmn < 1e-10 * dmx) return NAN;
-  double tr = 0.0; for (int a = 0; a < 6; a++) tr += G[a * 6 + a];
-  for (int a = 0; a < 6; a++) G[a * 6 + a] += 1e-12 * (tr > 0 ? tr : 1.0);
-  double L[36]; memset(L, 0, sizeof(L));
-  for (int a = 0; a < 6; a++) {
-    for (int b2 = 0; b2 <= a; b2++) {
-      double s = G[a * 6 + b2];
-      for (int k2 = 0; k2 < b2; k2++) s -= L[a * 6 + k2] * L[b2 * 6 + k2];
-      if (a == b2) { if (s <= 0) return NAN; L[a * 6 + a] = sqrt(s); }
-      else L[a * 6 + b2] = s / L[b2 * 6 + b2];
-    }
-  }
-  double w1[6], beta[6];
-  for (int a = 0; a < 6; a++) {
-    double s = v6[a];
-    for (int k2 = 0; k2 < a; k2++) s -= L[a * 6 + k2] * w1[k2];
-    w1[a] = s / L[a * 6 + a];
-  }
-  for (int a = 5; a >= 0; a--) {
-    double s = w1[a];
-    for (int k2 = a + 1; k2 < 6; k2++) s -= L[k2 * 6 + a] * beta[k2];
-    beta[a] = s / L[a * 6 + a];
-  }
-  double sse1 = 0.0;
-  for (int i = 0; i < n; i++) {
-    double fit = 0.0;
-    for (int j = 0; j < 6; j++) fit += J[(size_t)j * n + i] * beta[j];
-    double e1 = e0[i] - fit;
-    sse1 += e1 * e1;
-  }
-  if (sse1 <= 0) return NAN;
-  double num = sse0 - sse1;
-  if (num < 0.0) num = 0.0;
-  return (num / 6.0) / (sse1 / (double)(n - 6));
+  ef_jac(x, n, mu, sg, al, be, D);
+  if (!isfinite(ef_affine_resid(y, D, n, e0))) return NAN;
+  return ef_score_core(e0, n, D, Qm);
 }
 
 /* Support-overlap requirement on the searched set. The score statistic is only meaningful
@@ -591,101 +485,276 @@ static int mf_overlap(const mf_ctx *c, double mu, double sg) {
   return (mu <= q1) && (mu + sg >= q3);
 }
 
-/* profiling objective in the three remaining coordinates: windowed mu and sigma, and the
- * manifold coordinate alpha */
-static double mf_obj3(const double *p, const void *vc) {
-  const mf_ctx *c = (const mf_ctx *)vc;
-  double al = c->alo + ef_logis(p[2]) * (c->ahi - c->alo);
+/* profiling objective at a natural point: mu and sigma inside the windows, alpha in its window
+ * (ends included), beta on the tabulated arc. 1e10 outside the searched set or where the
+ * statistic is degenerate. */
+static double mf_T(const mf_ctx *c, double mu, double sg, double al) {
+  double R = c->xrng, tol = 1e-12 * R;
+  if (!(al >= c->alo) || !(al <= c->ahi)) return 1e10;
+  if (!(mu >= c->xlo - 0.5 * R - tol) || !(mu <= c->xlo + 0.25 * R + tol)) return 1e10;
+  if (!(sg >= 0.5 * R - tol) || !(sg <= 3.0 * R + tol)) return 1e10;
+  if (!mf_overlap(c, mu, sg)) return 1e10;
   double be = ef_interp(c->cal, c->cbe, c->nc, al, 1);
   if (!isfinite(be)) return 1e10;
-  /* transforms chosen so the whole reachable box is compatible with the overlap condition
-   * and the default start sits comfortably inside it: mu in [xlo-R/2, xlo+R/4] (the upper
-   * end is the overlap's own bound), sg in [R/2, 3R] */
-  double mu = c->xlo - 0.5 * c->xrng + ef_logis(p[0]) * 0.75 * c->xrng;
-  double sg = 0.5 * c->xrng * exp(ef_logis(p[1]) * 1.7917594692280550);  /* log(6): up to 3R */
-  if (!mf_overlap(c, mu, sg)) return 1e10;
   double v = ef_scoreF6p(c->x, c->y, c->n, mu, sg, al, be, c->wk);
   return isfinite(v) ? v : 1e10;
 }
-
-/* Least-squares objective on the same three coordinates and the same set: the residual sum of
- * squares after the affine layer is profiled out. The score statistic's surface is razor sharp
- * at small noise -- a direct descent on it steps over the minimum and returns a value above the
- * statistic at the truth, which the audit then reports as an optimiser failure (it did, at 13
- * and 97 per cent, before this stage existed). The least-squares surface is smooth and its
- * minimiser is close to the score minimiser, so it is used to locate the neighbourhood first. */
-static double mf_sse3(const double *p, const void *vc) {
-  const mf_ctx *c = (const mf_ctx *)vc;
-  double al = c->alo + ef_logis(p[2]) * (c->ahi - c->alo);
-  double be = ef_interp(c->cal, c->cbe, c->nc, al, 1);
-  if (!isfinite(be)) return 1e30;
-  double mu = c->xlo - 0.5 * c->xrng + ef_logis(p[0]) * 0.75 * c->xrng;
-  double sg = 0.5 * c->xrng * exp(ef_logis(p[1]) * 1.7917594692280550);
-  if (!mf_overlap(c, mu, sg)) return 1e30;
-  double thF[6] = { 0.0, 1.0, mu, sg, al, be };
-  double *F0 = c->wk + 4 * c->n;
-  double ug[EF_NG], Qg[EF_NG], Bab;
-  ef_grid(al, be, ug, Qg, &Bab);
-  ef_mbc_g(c->x, c->n, thF, F0, ug, Qg, Bab);
-  double s1 = (double)c->n, sF = 0, sFF = 0, sy = 0, sFy = 0;
-  for (int i = 0; i < c->n; i++) {
-    double F = F0[i];
-    sF += F; sFF += F * F; sy += c->y[i]; sFy += F * c->y[i];
-  }
-  double det = s1 * sFF - sF * sF;
-  if (!(fabs(det) > 1e-12 * (s1 * sFF + 1.0))) return 1e30;
-  double g1 = (s1 * sFy - sF * sy) / det, g0 = (sy - g1 * sF) / s1;
-  double sse = 0.0;
-  for (int i = 0; i < c->n; i++) { double e = c->y[i] - g0 - g1 * F0[i]; sse += e * e; }
-  return sse;
+/* residual sum of squares at the same point, after the affine layer is profiled out */
+static double mf_sse(const mf_ctx *c, double mu, double sg, double al) {
+  double R = c->xrng;
+  if (!(al >= c->alo) || !(al <= c->ahi)) return 1e30;
+  if (!(mu >= c->xlo - 0.5 * R) || !(mu <= c->xlo + 0.25 * R)) return 1e30;
+  if (!(sg >= 0.5 * R) || !(sg <= 3.0 * R) || !mf_overlap(c, mu, sg)) return 1e30;
+  double th[6] = { 0.0, 1.0, mu, sg, al, ef_interp(c->cal, c->cbe, c->nc, al, 1) };
+  if (!isfinite(th[5])) return 1e30;
+  ef_mbc(c->x, c->n, th, c->wk + c->n, NULL);
+  double v = ef_affine_resid(c->y, c->wk + c->n, c->n, c->wk);
+  return isfinite(v) ? v : 1e30;
 }
-
-/* the profiled minimum, in two stages.
- *
- * Stage 1 locates by least squares along a multistart in the manifold coordinate, then descends
- * the score statistic from each located neighbourhood. st[0..2] give the (mu, sigma, alpha-centre)
- * starting transforms. This stage is unchanged from earlier versions, so its result is an upper
- * bound for the whole routine.
- *
- * Stage 2 exists because the score surface is rough at small noise. Nelder-Mead on it stops at
- * points that are not minima, and stage 1 varies its starts in the alpha direction only, so it
- * cannot leave the neighbourhood the least-squares fit selects: on recorded null draws it
- * returned values above the minimum of its own objective: at alpha = -0.52 (40 draws) the
- * restarts below lower the minimum in 19, by up to 0.36, and never raise it. From the best
- * point, simplices are therefore restarted at the four corners of a half fraction in all three
- * coordinates, at three scales, keeping the best, and the minimum can only decrease. */
-#define PM_IT 400
-static double ef_profmin(const mf_ctx *c, const double *st, int maxit) {
-  double pas[5] = { st[2] - 2.2, st[2] - 1.1, st[2], st[2] + 1.1, st[2] + 2.2 };
-  double fbest = 1e30, pb[3] = { st[0], st[1], st[2] };
-  int it1 = maxit / 2 > 300 ? maxit / 2 : 300;
-  for (int a0 = 0; a0 < 5; a0++) {
-    double s0[3] = { st[0], st[1], pas[a0] }, pls[3], fls, p1[3], f1, p2[3], f2;
-    /* stage 1: least squares locates the neighbourhood */
-    arck4_nmd(mf_sse3, c, 3, s0, it1, pls, &fls);
-    if (!isfinite(fls) || fls >= 1e29) continue;
-    /* the score statistic itself, from the located point */
-    arck4_nmd(mf_obj3, c, 3, pls, maxit, p1, &f1);
-    if (f1 < fbest) { fbest = f1; memcpy(pb, p1, sizeof(pb)); }
-    arck4_nmd(mf_obj3, c, 3, p1, maxit, p2, &f2);
-    if (f2 < fbest) { fbest = f2; memcpy(pb, p2, sizeof(pb)); }
+/* the search coordinates: p = (mu, e, alpha), e = mu + sigma the right end of the support. The
+ * right end is the coordinate the statistic is least regular in, so it is a coordinate. */
+typedef struct { const mf_ctx *c; int kind, d, id[3]; double p[3]; } pm_ctx;
+static double pm_eval(const pm_ctx *q, const double *v) {
+  double p[3] = { q->p[0], q->p[1], q->p[2] };
+  for (int j = 0; j < q->d; j++) p[q->id[j]] = v[j];
+  return q->kind ? mf_sse(q->c, p[0], p[1] - p[0], p[2]) : mf_T(q->c, p[0], p[1] - p[0], p[2]);
+}
+/* Nelder-Mead over the free coordinates of q from the simplex (v, v + step), until the simplex is
+ * below xtol in units of the steps. Returns the value; v is replaced by the best vertex. */
+static double pm_nm(const pm_ctx *q, double *v, const double *step, int maxit, double xtol) {
+  int d = q->d;
+  double V[4][3], f[4];
+  for (int i = 0; i <= d; i++) {
+    for (int j = 0; j < d; j++) V[i][j] = v[j];
+    if (i) V[i][i - 1] += step[i - 1];
+    f[i] = pm_eval(q, V[i]);
+    if (i && f[i] >= 1e10) { V[i][i - 1] = v[i - 1] - step[i - 1]; f[i] = pm_eval(q, V[i]); }
   }
-  if (fbest >= 1e29) return fbest;
-  /* stage 2: restarts in every direction from the best point */
-  static const double scales[3] = { 0.1, 0.2, 0.1 };
-  for (int round = 0; round < 3; round++) {
-    double pc[3] = { pb[0], pb[1], pb[2] };
-    for (int k = 0; k < 8; k++) {
-      if (((k & 1) ^ ((k >> 1) & 1) ^ ((k >> 2) & 1)) != 0) continue;   /* half fraction */
-      double sc = scales[round], s[3], p1[3], f1;
-      s[0] = pc[0] + sc * ((k & 1) ? 1.0 : -1.0);
-      s[1] = pc[1] + sc * ((k & 2) ? 1.0 : -1.0);
-      s[2] = pc[2] + 2.0 * sc * ((k & 4) ? 1.0 : -1.0);
-      arck4_nmd(mf_obj3, c, 3, s, PM_IT, p1, &f1);
-      if (f1 < fbest) { fbest = f1; memcpy(pb, p1, sizeof(pb)); }
+  for (int it = 0; it < maxit; it++) {
+    int l = 0, h = 0, s2 = -1;
+    for (int i = 1; i <= d; i++) { if (f[i] < f[l]) l = i; if (f[i] > f[h]) h = i; }
+    for (int i = 0; i <= d; i++) if (i != h && (s2 < 0 || f[i] > f[s2])) s2 = i;
+    double ext = 0.0;
+    for (int i = 0; i <= d; i++) for (int j = 0; j < d; j++) {
+      double e = fabs((V[i][j] - V[l][j]) / step[j]);
+      if (e > ext) ext = e;
+    }
+    if (ext < xtol) break;
+    double cen[3] = { 0, 0, 0 }, r[3], t[3];
+    for (int i = 0; i <= d; i++) if (i != h) for (int j = 0; j < d; j++) cen[j] += V[i][j] / d;
+    for (int j = 0; j < d; j++) r[j] = 2.0 * cen[j] - V[h][j];
+    double fr = pm_eval(q, r);
+    if (fr < f[l]) {
+      for (int j = 0; j < d; j++) t[j] = 3.0 * cen[j] - 2.0 * V[h][j];
+      double ft = pm_eval(q, t);
+      if (ft < fr) { memcpy(V[h], t, sizeof(t)); f[h] = ft; }
+      else         { memcpy(V[h], r, sizeof(r)); f[h] = fr; }
+    } else if (fr < f[s2]) { memcpy(V[h], r, sizeof(r)); f[h] = fr; }
+    else {
+      int out = fr < f[h];
+      for (int j = 0; j < d; j++) t[j] = 0.5 * (cen[j] + (out ? r[j] : V[h][j]));
+      double ft = pm_eval(q, t);
+      if (ft < (out ? fr : f[h])) { memcpy(V[h], t, sizeof(t)); f[h] = ft; }
+      else for (int i = 0; i <= d; i++) if (i != l) {
+        for (int j = 0; j < d; j++) V[i][j] = 0.5 * (V[i][j] + V[l][j]);
+        f[i] = pm_eval(q, V[i]);
+      }
     }
   }
-  return fbest;
+  int l = 0;
+  for (int i = 1; i <= d; i++) if (f[i] < f[l]) l = i;
+  memcpy(v, V[l], (size_t)d * sizeof(double));
+  return f[l];
+}
+typedef struct { double p[3], f; } pm_pt;
+static void pm_steps(const mf_ctx *c, const pm_ctx *q, double sc, double *st) {
+  const double u[3] = { 0.02 * c->xrng, 0.02 * c->xrng, 0.04 * (c->ahi - c->alo) };
+  for (int j = 0; j < q->d; j++) st[j] = sc * u[q->id[j]];
+}
+/* minimise over the coordinates in `mask` (bit j: coordinate j free) from b, keeping b if no gain */
+static void pm_polish(const mf_ctx *c, pm_pt *b, int mask, double sc, int maxit, double xtol) {
+  pm_ctx q = { c, 0, 0, { 0, 0, 0 }, { b->p[0], b->p[1], b->p[2] } };
+  double v[3], st[3];
+  for (int j = 0; j < 3; j++) if (mask & (1 << j)) { v[q.d] = b->p[j]; q.id[q.d++] = j; }
+  pm_steps(c, &q, sc, st);
+  double f = pm_nm(&q, v, st, maxit, xtol);
+  if (f < b->f) { b->f = f; for (int j = 0; j < q.d; j++) b->p[q.id[j]] = v[j]; }
+}
+/* shrinking restarts with alternating orientation, until two in a row gain nothing */
+static void pm_tight(const mf_ctx *c, pm_pt *b, int mask) {
+  static const double sc[8] = { 0.5, -0.2, 0.08, -0.03, 0.3, -0.1, 0.01, -0.003 };
+  int idle = 0;
+  for (int k = 0; k < 8 && idle < 3; k++) {
+    double f0 = b->f;
+    pm_polish(c, b, mask, sc[k], 250, 1e-8);
+    idle = (f0 - b->f > 1e-9) ? 0 : idle + 1;
+  }
+}
+/* minimise with e pinned at the faces of the cell structure: just outside and just inside every
+ * design point within `w` of b, and over the cells between them */
+static void pm_faces(const mf_ctx *c, pm_pt *best, const pm_pt *b, int w) {
+  int n = c->n, j0 = 0;
+  for (int i = 1; i < n; i++) if (fabs(c->x[i] - b->p[1]) < fabs(c->x[j0] - b->p[1])) j0 = i;
+  for (int j = j0 - w; j <= j0 + w; j++) {
+    if (j < 0 || j >= n) continue;
+    for (int side = 0; side < 3; side++) {
+      pm_pt t = *b;
+      if (side == 0) t.p[1] = c->x[j];                                   /* point j just outside */
+      else if (side == 1) t.p[1] = c->x[j] + (c->x[j] - t.p[0]) * 1.001 * EF_ZMIN; /* just inside */
+      else t.p[1] = (j + 1 < n) ? 0.5 * (c->x[j] + c->x[j + 1]) : c->x[j] + 0.5 * (c->x[j] - c->x[j - 1]);
+      t.f = mf_T(c, t.p[0], t.p[1] - t.p[0], t.p[2]);
+      if (t.f >= 1e10) continue;
+      if (side == 2) pm_polish(c, &t, 7, 0.1, 120, 1e-5);
+      else {
+        pm_polish(c, &t, 5, 0.3, 60, 1e-4);
+        if (side == 1) t.p[1] = c->x[j] + (c->x[j] - t.p[0]) * 1.001 * EF_ZMIN;
+        double f = mf_T(c, t.p[0], t.p[1] - t.p[0], t.p[2]);
+        if (side == 1) t.f = f;
+      }
+      if (t.f < best->f + 1e-4) {                       /* worth finishing */
+        pm_pt u = t;
+        pm_polish(c, &u, side == 2 ? 7 : 5, 0.05, 200, 1e-9);
+        pm_polish(c, &u, side == 2 ? 7 : 5, -0.01, 200, 1e-9);
+        if (u.f < t.f) t = u;
+      }
+      if (t.f < best->f) *best = t;
+    }
+  }
+}
+
+/* The profiled minimum.
+ *
+ * On the searched set the statistic has several local minima: a main one near the least-squares
+ * fit, stationary points of the residual surface elsewhere, and, because a design point leaves the
+ * fit altogether when the right end of the support passes it, a separate minimum in each cell
+ * between neighbouring design points, often ON the face of the cell. A descent from a few starts,
+ * as earlier versions had, reaches one of them. The search is therefore global first:
+ *   1  a dense grid over (mu, e, alpha), e = mu + sigma, clustered where supports fit the design;
+ *   2  least-squares descents from the best residual sums of squares on the grid (the surface is
+ *      smooth) and from the caller's start, followed by score descents;
+ *   3  score descents from every grid-local minimum (the best PM_NL) and the best grid points;
+ *   4  the best distinct results are polished to a tolerance of 1e-9 in the statistic, with the
+ *      faces of the cells and the kinks and ends of the tabulated arc searched explicitly.
+ * Nothing is random, and the result is the smallest value met. */
+#define PM_M 11
+#define PM_E 15
+#define PM_A 11
+#define PM_NL 10
+static int pm_cmp(const void *a, const void *b) {
+  double d = ((const pm_pt *)a)->f - ((const pm_pt *)b)->f;
+  return d < 0 ? -1 : (d > 0 ? 1 : 0);
+}
+static double ef_profmin(const mf_ctx *c, const double *st, int maxit) {
+  static const double eg[PM_E] = { 0.755, 0.80, 0.86, 0.91, 0.95, 0.98, 0.998, 1.012, 1.035, 1.07,
+                                   1.13, 1.27, 1.55, 2.1, 2.9 };
+  (void)maxit;
+  double R = c->xrng, *V = (double *)malloc(PM_M * PM_E * PM_A * 2 * sizeof(double));
+  if (!V) return NAN;
+  double *W = V + PM_M * PM_E * PM_A;                         /* residual sums of squares */
+#define PM_AT(i, j, k) (((i) * PM_E + (j)) * PM_A + (k))
+  pm_pt G[PM_NL + 8 + 6 + 6], cand;
+  double mus[PM_M], als[PM_A];
+  for (int i = 0; i < PM_M; i++) {
+    double s = -1.0 + 2.0 * i / (PM_M - 1);
+    mus[i] = c->xlo + (s < 0.0 ? -0.5 : 0.25) * R * s * s;
+  }
+  for (int k = 0; k < PM_A; k++) als[k] = c->alo + (c->ahi - c->alo) * (k + 0.5) / PM_A;
+  for (int i = 0; i < PM_M; i++) for (int j = 0; j < PM_E; j++) for (int k = 0; k < PM_A; k++) {
+    double e = c->xlo + R * eg[j];
+    double v = mf_T(c, mus[i], e - mus[i], als[k]);
+    V[PM_AT(i, j, k)] = v;
+    double ss = 1e30;
+    if (v < 1e10) { ss = 0.0; for (int m = 0; m < c->n; m++) ss += c->wk[m] * c->wk[m]; }
+    W[PM_AT(i, j, k)] = ss;                                   /* e0 of the evaluation just made */
+  }
+  int ng = 0;
+  /* grid-local minima of the statistic, best PM_NL kept; then the eight best points outright */
+  for (int pass = 0; pass < 2; pass++) {
+    int n0 = ng, cap = pass ? 8 : PM_NL;
+    for (int i = 0; i < PM_M; i++) for (int j = 0; j < PM_E; j++) for (int k = 0; k < PM_A; k++) {
+      double v = V[PM_AT(i, j, k)];
+      if (v >= 1e10) continue;
+      int ok = 1;
+      for (int a = -1; a <= 1 && ok; a++) for (int b2 = -1; b2 <= 1 && ok; b2++)
+        for (int d = -1; d <= 1; d++) {
+          int ii = i + a, jj = j + b2, kk = k + d;
+          if (ii < 0 || jj < 0 || kk < 0 || ii >= PM_M || jj >= PM_E || kk >= PM_A) continue;
+          if (V[PM_AT(ii, jj, kk)] < v) { ok = 0; break; }
+        }
+      if (ok == pass) continue;                               /* pass 0: minima; pass 1: the rest */
+      pm_pt t = { { mus[i], c->xlo + R * eg[j], als[k] }, v };
+      if (ng - n0 < cap) { G[ng++] = t; }
+      else {
+        int hi = n0;
+        for (int m = n0 + 1; m < ng; m++) if (G[m].f > G[hi].f) hi = m;
+        if (v < G[hi].f) G[hi] = t;
+      }
+    }
+  }
+  /* least squares: the five best residual sums on the grid, and the caller's start */
+  for (int m = 0; m < 6; m++) {
+    double p[3];
+    if (m < 5) {
+      int b = 0;
+      for (int q = 1; q < PM_M * PM_E * PM_A; q++) if (W[q] < W[b]) b = q;
+      if (W[b] >= 1e30) continue;
+      W[b] = 1e30;
+      p[0] = mus[b / (PM_E * PM_A)]; p[1] = c->xlo + R * eg[(b / PM_A) % PM_E]; p[2] = als[b % PM_A];
+    } else {
+      p[0] = c->xlo - 0.5 * R + ef_logis(st[0]) * 0.75 * R;
+      p[1] = p[0] + 0.5 * R * exp(ef_logis(st[1]) * 1.7917594692280550);
+      p[2] = c->alo + ef_logis(st[2]) * (c->ahi - c->alo);
+    }
+    pm_ctx q = { c, 1, 3, { 0, 1, 2 }, { 0, 0, 0 } };
+    double stp[3];
+    pm_steps(c, &q, 1.0, stp);
+    pm_nm(&q, p, stp, 200, 1e-5);
+    pm_steps(c, &q, -0.1, stp);
+    pm_nm(&q, p, stp, 200, 1e-7);
+    cand.p[0] = p[0]; cand.p[1] = p[1]; cand.p[2] = p[2];
+    cand.f = mf_T(c, p[0], p[1] - p[0], p[2]);
+    if (cand.f < 1e10) G[ng++] = cand;
+  }
+  free(V);
+  if (ng == 0) return 1e10;
+  for (int m = 0; m < ng; m++) pm_polish(c, &G[m], 7, 0.7, 120, 1e-3);
+  qsort(G, (size_t)ng, sizeof(pm_pt), pm_cmp);
+  /* best distinct four */
+  pm_pt D[4]; int nd = 0;
+  for (int m = 0; m < ng && nd < 4; m++) {
+    int dup = 0;
+    for (int q = 0; q < nd; q++)
+      if (fabs(G[m].p[0] - D[q].p[0]) < 0.01 * R && fabs(G[m].p[1] - D[q].p[1]) < 0.002 * R &&
+          fabs(G[m].p[2] - D[q].p[2]) < 0.02 * (c->ahi - c->alo)) dup = 1;
+    if (!dup) D[nd++] = G[m];
+  }
+  pm_pt best = D[0];
+  for (int m = 0; m < nd; m++) {
+    pm_tight(c, &D[m], 7);
+    if (D[m].f < best.f) best = D[m];
+  }
+  qsort(D, (size_t)nd, sizeof(pm_pt), pm_cmp);
+  for (int round = 0; round < 2; round++) {
+    double f0 = best.f;
+    if (round == 0) for (int m = 0; m < nd && m < 2; m++) pm_faces(c, &best, &D[m], m ? 2 : 4);
+    else { pm_pt b0 = best; pm_faces(c, &best, &b0, 2); }
+    /* kinks and ends of the arc near the best point */
+    int k0 = 0;
+    for (int k = 1; k < c->nc; k++) if (fabs(c->cal[k] - best.p[2]) < fabs(c->cal[k0] - best.p[2])) k0 = k;
+    for (int k = k0 - 1; k <= k0 + 3; k++) {
+      double al = k == k0 + 2 ? c->alo : (k == k0 + 3 ? c->ahi : (k >= 0 && k < c->nc ? c->cal[k] : NAN));
+      if (!(al >= c->alo) || !(al <= c->ahi)) continue;
+      pm_pt t = best;
+      t.p[2] = al; t.f = mf_T(c, t.p[0], t.p[1] - t.p[0], al);
+      if (t.f >= 1e10) continue;
+      pm_polish(c, &t, 3, 0.3, 80, 1e-4);
+      if (t.f < best.f + 1e-4) { pm_polish(c, &t, 3, -0.05, 200, 1e-9); if (t.f < best.f) best = t; }
+    }
+    pm_tight(c, &best, 7);
+    pm_polish(c, &best, 5, 0.02, 200, 1e-9);
+    if (f0 - best.f < 1e-9) break;
+  }
+  return best.f;
 }
 
 /* entry: the whole Table-4 simulation. Four arms: truth, beta+0.20, beta-0.15, beta-0.30.
@@ -717,7 +786,7 @@ void arceqfit_msim(const int *nM, const double *sde, const int *Rm, const int *s
     double *y  = (double *)malloc((size_t)N * sizeof(double));
     double *m  = (double *)malloc((size_t)N * sizeof(double));
     double *zb = (double *)malloc((size_t)N * sizeof(double));
-    double *wk = (double *)malloc((size_t)N * 10 * sizeof(double));
+    double *wk = (double *)malloc((size_t)N * 12 * sizeof(double));
     if (y && m && zb && wk) {
       double th2[6]; memcpy(th2, th0, sizeof(th2));
       th2[5] += shifts[arm];
@@ -747,7 +816,7 @@ void arceqfit_msim(const int *nM, const double *sde, const int *Rm, const int *s
  * the statistic is degenerate. */
 void arceqfit_score_at(const double *x, const double *y, const int *n, const double *mu,
                        const double *sg, const double *al, const double *be, double *out) {
-  double *wk = (double *)malloc((size_t)(*n) * 10 * sizeof(double));
+  double *wk = (double *)malloc((size_t)(*n) * 12 * sizeof(double));
   if (!wk) { *out = NAN; return; }
   *out = ef_scoreF6p(x, y, *n, *mu, *sg, *al, *be, wk);
   free(wk);
@@ -777,7 +846,7 @@ void arceqfit_nullT(const int *nM, const double *sde, const int *R2, const int *
     double *y  = (double *)malloc((size_t)N * sizeof(double));
     double *m  = (double *)malloc((size_t)N * sizeof(double));
     double *zb = (double *)malloc((size_t)N * sizeof(double));
-    double *wk = (double *)malloc((size_t)N * 10 * sizeof(double));
+    double *wk = (double *)malloc((size_t)N * 12 * sizeof(double));
     if (y && m && zb && wk) {
       ef_mbc(x, N, th0, m, zb);
       unsigned long long s = ef_seed(*seed, r);

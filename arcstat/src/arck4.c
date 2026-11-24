@@ -102,21 +102,40 @@ void arck4_pdf(const double *x, const int *nx, const double *mu, const double *s
   for (int i = 0; i < *nx; i++) out[i] = k4_f(x[i], *mu, *sg, *k, *h);
 }
 
-/* ---------- theoretical L-moment ratios (shifted-Legendre quadrature) ---------------------- */
+/* ---------- theoretical L-moment ratios ------------------------------------------------------ */
+/* log w(u), w = (1 - u^h)/h, from lu = log u and lv = log(1-u); accurate at both ends and at h = 0 */
+static double k4_lw(double lu, double lv, double h) {
+  if (lv < -36.0) return lv;                         /* u within 1e-16 of one: w = (1-u)(1 + O(1-u)) */
+  double z = h * lu;
+  if (fabs(z) < 1e-300) return log(-lu);
+  if (z > 30.0) return z + log1p(-exp(-z)) - log(-h);          /* only for h < 0 */
+  return log(-expm1(z) / h);
+}
+/* L-moments of the standardised member. After one integration by parts
+ *      lambda_{r} = int_0^1 q(u) u(1-u) p_{r-2}(u) du,   r = 2, 3, 4,
+ * and with u = 1/(1+exp(-s)), s = sinh(t), the integrand is analytic on a strip and decays like
+ * exp(-rate |s|) with rate 1 + k on the right and 1 + min(0, h k) (1 + h or 1) on the left. The
+ * trapezoid rule in t is then exponentially accurate, uniformly up to the edge of existence
+ * (k > -1, h k > -1), where a Gauss rule on (0,1) is only algebraic because both ends of the
+ * integrand are singular. `nodes` is the number of trapezoid nodes, at least 200. Ratios are NaN
+ * where the moments do not exist. */
 void arck4_tau34(const double *k, const double *h, const int *nodes, double *out) {
-  int n = *nodes;
-  double *x = (double *)malloc((size_t)n * sizeof(double));
-  double *w = (double *)malloc((size_t)n * sizeof(double));
-  gl01(n, x, w);
+  double K = *k, H = *h;
+  out[0] = out[1] = out[2] = out[3] = NAN;
+  double rr = 1.0 + (K < 0.0 ? K : 0.0), rl = 1.0 + (H < 0.0 && H * K < 0.0 ? H * K : 0.0);
+  if (!(rr > 0.0) || !(rl > 0.0) || !isfinite(H)) return;
+  int n = *nodes < 200 ? 200 : *nodes;
+  double tl = -asinh(45.0 / rl), tr = asinh(45.0 / rr), dt = (tr - tl) / (n - 1);
   double l1 = 0, l2 = 0, l3 = 0, l4 = 0;
   for (int i = 0; i < n; i++) {
-    double u = x[i], q = k4_q(u, 0.0, 1.0, *k, *h);
-    double P1 = 2.0*u - 1.0;
-    double P2 = 6.0*u*u - 6.0*u + 1.0;
-    double P3 = 20.0*u*u*u - 30.0*u*u + 12.0*u - 1.0;
-    l1 += w[i]*q; l2 += w[i]*q*P1; l3 += w[i]*q*P2; l4 += w[i]*q*P3;
+    double t = tl + dt * i, s = sinh(t), wt = dt * cosh(t);
+    double lu = s > 0.0 ? -log1p(exp(-s)) : s - log1p(exp(s)), lv = lu - s;
+    double u = exp(lu), v = exp(lv), lw = k4_lw(lu, lv, H), luv = lu + lv;
+    double e2 = wt * exp((K - 1.0) * lw + (H - 1.0) * lu + 2.0 * luv);
+    l2 += e2; l3 += e2 * (u - v); l4 += e2 * (1.0 - 5.0 * u * v);
+    if (fabs(K * lw) < 1.0) l1 += wt * exp(luv) * (K == 0.0 ? -lw : -expm1(K * lw) / K);
+    else                    l1 += wt * (exp(luv) - exp(K * lw + luv)) / K;
   }
-  free(x); free(w);
   out[0] = l3 / l2; out[1] = l4 / l2; out[2] = l1; out[3] = l2;
 }
 
@@ -183,63 +202,58 @@ void arck4_band_sample(const double *x, const double *y, const int *n,
   }
 }
 
-/* ---------- the two standard readings (dense grid, differenced third derivative) ------------ */
+/* ---------- the two standard readings (closed form) ------------------------------------------ */
+/* Everything here is exact. With c = 1 - k, d = 1 - h, w = (1 - u^h)/h and r = u^h / w, the log
+ * quantile density log q = (k-1) log w + (h-1) log u + const has
+ *      u (log q)' = c r - d,          u dr/du = r^2 + h r,
+ * so the steepest point of the curve (the minimum of q) is r = d/c, and the third-derivative
+ * reading, 2 (log q)'^2 = (log q)'' below it, is a root of the QUADRATIC
+ *      c (1-2k) r^2 - 3 c d r + d (1-2h) = 0.
+ * Back in the variable: 1/w = r + h, u = exp(-log1p(h/r)/h) (exp(-1/r) at h = 0), and
+ * x = mu + sg (1 - w^k)/k. Neither a grid nor the fitted tail length enters, and all the limits
+ * h -> 0, k -> 0, k -> -1 are ordinary points.
+ *
+ * Existence. r runs over (max(0,-h), infinity) and increases with u, so there is an INTERIOR
+ * steepest point exactly when k < 1, h < 1 and h k < 1; otherwise the density is monotone (both
+ * terms of (log q)' are negative at k >= 1, h < 1), the "mode" would be an endpoint artefact, and
+ * every output is NaN. On that region the quadratic is negative at r = d/c and has exactly one
+ * root below it if h < 1/2 and h k < 1/2, and none otherwise; b is then NaN. In particular the
+ * member (k, h) = (1, 1/2), whose density is exactly linear, has no reading to report.
+ *
+ * Earlier versions located the mode on `grid` equally spaced points between the 0.1 and 99.9 per
+ * cent quantiles. For a heavy right tail the spacing exceeds the width of the whole rise, and the
+ * tangent was drawn away from the steepest point and met the baseline too early. The argument is
+ * kept so that existing calls work; it has no effect. */
+static double k4_x_of_lw(double lw, double mu, double sg, double k) {
+  return (k == 0.0) ? mu - sg * lw : mu - sg * expm1(k * lw) / k;
+}
 void arck4_readings(const double *theta, const int *grid, double *out) {
-  double g0 = theta[0], g1 = theta[1], mu = theta[2], sg = theta[3], k = theta[4], h = theta[5];
-  (void)g0;
-  if (fabs(k) < 1e-4) k = (k >= 0 ? 1.0 : -1.0) * 1e-4;
-  double x0 = k4_q(0.001, mu, sg, k, h), x1 = k4_q(0.999, mu, sg, k, h);
+  double g1 = theta[1], mu = theta[2], sg = theta[3], k = theta[4], h = theta[5];
+  (void)grid;
   out[0] = out[1] = out[2] = NAN;
-  if (!isfinite(x0) || !isfinite(x1) || x1 <= x0) return;
-  int G = *grid;
-  double *m1 = (double *)malloc((size_t)G * sizeof(double));
-  double dx = (x1 - x0) / (G - 1);
-  int ic = 0; double best = -1.0;
-  for (int i = 0; i < G; i++) {
-    double xx = x0 + dx * i;
-    m1[i] = g1 * k4_f(xx, mu, sg, k, h);
-    if (m1[i] > best) { best = m1[i]; ic = i; }
+  double c = 1.0 - k, d = 1.0 - h;
+  if (!(g1 > 0.0) || !(sg > 0.0) || !isfinite(mu) || !isfinite(sg)) return;
+  if (!(c > 0.0) || !(d > 0.0) || !(h * k < 1.0) || !isfinite(k) || !isfinite(h)) return;
+  double rc = d / c, lw = -log1p(k * d / c);            /* 1/w = (1 - h k)/c = 1 + k d/c */
+  if (fabs(k * d / c) > 0.5) lw = log(c / (1.0 - h * k));
+  double xc = k4_x_of_lw(lw, mu, sg, k);
+  double uq = sg * rc * exp(k * lw);                    /* u q(u) = sg w^k r */
+  out[2] = xc;
+  out[0] = xc - uq;                                     /* tangent meets the baseline */
+  if (!(h < 0.5) || !(h * k < 0.5)) return;
+  /* the one root below d/c, measured from the end of its range so that nothing cancels there */
+  double disc = c * d * (9.0 * c * d - 4.0 * (1.0 - 2.0 * k) * (1.0 - 2.0 * h));
+  if (!(disc >= 0.0)) return;
+  double sq = sqrt(disc), rph;                          /* rph = r + h = 1/w */
+  if (h >= 0.0) {
+    rph = 2.0 * d * (1.0 - 2.0 * h) / (3.0 * c * d + sq) + h;
+  } else {
+    double P = (1.0 - 2.0 * h * k) * (1.0 - h * k);      /* the quadratic at r = -h */
+    double B = 3.0 * c * d + 2.0 * c * (1.0 - 2.0 * k) * h;   /* minus its slope there */
+    rph = 2.0 * P / (B + sq);
   }
-  /* The steepest point must be an INTERIOR maximum of the density. For this family both terms
-     of (log q)' are negative whenever k >= 1 and h < 1, so q is strictly decreasing, f = 1/q is
-     strictly increasing, and the grid argmax lands on the right-hand endpoint. The "mode" is
-     then a boundary artefact and both readings computed from it are meaningless -- the tangent
-     reading in particular is finite and plausible-looking. Neither reading exists there, so
-     report NaN. The generic quantile-domain reader carries the same guard. */
-  if (ic <= 0 || ic >= G - 1) { free(m1); return; }
-  double c0 = x0 + dx * ic;
-  out[2] = c0;
-  out[0] = c0 - (g1 * k4_F(c0, mu, sg, k, h)) / m1[ic];   /* tangent meets the baseline */
-  free(m1);
-
-  /* The third-derivative reading lies BELOW the mode, so spreading a uniform grid over the whole
-     support wastes nearly all of it on the right tail. For the skewed shapes these curves prefer
-     that tail can run to thousands of hours while the reading sits at a few, and the root is then
-     missed entirely. Refine on [x0, c0] alone, at the same cost. */
-  if (c0 > x0) {
-    double *m2 = (double *)malloc((size_t)G * sizeof(double));
-    if (m2 == NULL) return;
-    double dz = (c0 - x0) / (G - 1);
-    double m2max = 0.0;
-    for (int i = 0; i < G; i++) {
-      m2[i] = g1 * k4_f(x0 + dz * i, mu, sg, k, h);
-      if (m2[i] > m2max) m2max = m2[i];
-    }
-    /* A sign change between two below-noise second differences is rounding jitter, not an
-       inflection: at (k, h) = (1, 1/2) the density is exactly linear, the third derivative
-       vanishes identically, and the unthresholded detector manufactured a reading out of the
-       last bits. A genuine inflection at this grid density carries |d2| of order f'' dz^2,
-       many orders above the floor; the threshold removes the artefact without touching any
-       real reading. */
-    double thr = 1e-13 * m2max;
-    for (int i = 1; i + 2 < G; i++) {
-      double d2a = (m2[i+1] - 2.0*m2[i] + m2[i-1]);
-      double d2b = (m2[i+2] - 2.0*m2[i+1] + m2[i]);
-      if (fabs(d2a) > thr && fabs(d2b) > thr &&
-          ((d2a > 0 && d2b < 0) || (d2a < 0 && d2b > 0))) { out[1] = x0 + dz * i; break; }
-    }
-    free(m2);
-  }
+  if (!(rph > 0.0)) return;
+  out[1] = k4_x_of_lw(-log(rph), mu, sg, k);
 }
 
 /* ---------- deterministic Nelder-Mead -------------------------------------------------------- */
@@ -318,6 +332,26 @@ void arck4_fit_lmom(const double *t3, const double *t4, const int *nodes, double
 /* ---------- fit 2: quantile-domain arc-length shape fit ------------------------------------- */
 typedef struct { const double *A; const double *bands; int J; int nodes;
                  const double *x01; const double *w01; } aq_ctx;
+/* Arc length of the quantile curve over [a, b] when the band comes near an end of (0,1), where the
+ * quantile density has a power singularity (u^(h-1) at 0, (1-u)^(k-1) at 1) and the Gauss rule is
+ * only algebraically accurate. Double-exponential rule, carried in logs so that nothing underflows;
+ * a Gauss rule is kept for interior bands. A band that ends at one has infinite length for k <= 0. */
+static double aq_band_de(double a, double b, double al, double k, double h) {
+  const double dt = 0.0625;
+  if (b >= 1.0 && k <= 0.0) return HUGE_VAL;
+  double W = b - a, lW = log(W), S = 0.0, lal = log(al);
+  for (int i = -120; i <= 120; i++) {
+    double t = dt * i, z = M_PI * sinh(t);
+    double lp = z > 0.0 ? -log1p(exp(-z)) : z - log1p(exp(z)), lm = lp - z;   /* log p, log(1-p) */
+    double lu = a > 0.0 ? log(a + W * exp(lp)) : lW + lp;
+    double lv = b < 1.0 ? log((1.0 - b) + W * exp(lm)) : lW + lm;
+    if (lv < -0.6931471805599453) lu = log1p(-exp(lv));      /* keep the pair consistent near one */
+    double ldu = lW + lp + lm + log(M_PI * cosh(t) * dt);
+    double lq = lal + (k - 1.0) * k4_lw(lu, lv, h) + (h - 1.0) * lu;
+    S += hypot(exp(ldu), exp(lq + ldu));
+  }
+  return S;
+}
 static double aq_obj(const double *p, const void *vc) {
   const aq_ctx *c = (const aq_ctx *)vc;
   double al = exp(p[0]), k = p[1], h = exp(p[2]);
@@ -325,7 +359,8 @@ static double aq_obj(const double *p, const void *vc) {
   double s = 0.0;
   for (int j = 0; j < c->J; j++) {
     double a = c->bands[2*j], b = c->bands[2*j+1], S = 0.0;
-    for (int i = 0; i < c->nodes; i++) {
+    if (a < 0.05 || b > 0.95) S = aq_band_de(a, b, al, k, h);
+    else for (int i = 0; i < c->nodes; i++) {
       double u = a + (b - a) * c->x01[i];
       double qd = al * pow((1.0 - pow(u, h)) / h, k - 1.0) * pow(u, h - 1.0);
       S += c->w01[i] * (b - a) * sqrt(1.0 + qd * qd);
