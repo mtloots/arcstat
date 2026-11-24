@@ -135,3 +135,57 @@ test_that("THE BAYESIAN TEST separates a uniform sample from a departure", {
   expect_equal(dim(p), c(200L, 2L))
   expect_identical(bb_post_disc((1:60 - 0.5)/60, M = 200L, seed = 1L), p)
 })
+
+test_that("eq_readings matches high-precision values, including the singular left end", {
+  ## Constants: mpmath at 50 digits (incomplete beta, closed-form roots of g' = 0 and
+  ## 2 g'^2 = g''). Columns: alpha, beta, a, b, uc, ub. The integral of q must start at ZERO:
+  ## for alpha below -1/2 the mass on (0, 1e-5) and the trapezoid overshoot on the first cells
+  ## were once dropped, which lowered a and b by up to 5 per cent. beta = -1 + 1e-9 is the
+  ## near-degenerate end of the equivalence curve.
+  ref <- rbind(
+    c(-0.6434, -0.966, 1.11192920277, 1.11193319294, 0.399776314154, 0.0709201279567),
+    c(-0.6, -0.378118, 1.06789574393, 1.06789588842, 0.613422920343, 0.115438787487),
+    c(-0.55, -0.9, 0.640186539725, 0.442993243486, 0.379310344828, 0.027298078942),
+    c(-0.52, -1 + 1e-9, 0.512394550159, 0.228607978552, 0.342105263383, 0.00994857612993),
+    c(-0.505, -1 + 1e-9, 0.465652925522, 0.104103098037, 0.33554817298, 0.00249685186998),
+    c(-0.6, -1 + 1e-9, 0.843319480661, 0.756439847235, 0.375000000234, 0.0486043951283),
+    c(-0.64, -0.99, 1.08223342321, 1.07374270604, 0.39263803681, 0.0678008353378)
+  )
+  for (i in seq_len(nrow(ref))) {
+    r <- eq_readings(ref[i, 1], ref[i, 2])
+    expect_equal(unname(r[["a"]]),  ref[i, 3], tolerance = 1e-7)
+    expect_equal(unname(r[["b"]]),  ref[i, 4], tolerance = 1e-7)
+    expect_equal(unname(r[["uc"]]), ref[i, 5], tolerance = 1e-7)
+    expect_equal(unname(r[["ub"]]), ref[i, 6], tolerance = 1e-7)
+  }
+  ## tilted kernel (theta = 0.05, 0.02, 0.01), mpmath quadrature: a, uc
+  rt <- eq_readings(-0.6, -0.9, c(0.05, 0.02, 0.01))
+  expect_equal(unname(rt[["a"]]), 0.826378472447, tolerance = 1e-7)
+  expect_equal(unname(rt[["uc"]]), 0.391886932994, tolerance = 1e-7)
+  ## van Staden-Loots host, closed form (mpmath): lambda = 0.3, delta = 0.6
+  rv <- eq_readings_vsl(0.3, 0.6)
+  expect_equal(unname(rv[["a"]]), 0.652733314402, tolerance = 1e-7)
+  expect_equal(unname(rv[["uc"]]), 0.440653844715, tolerance = 1e-7)
+  qv <- function(u) 0.4 * u^(-0.7) + 0.6 * (1 - u)^(-0.7)
+  Qv <- function(u) (0.4 * u^0.3 + 0.6 * (1 - (1 - u)^0.3)) / 0.3
+  expect_equal(unname(rv[["b"]]), Qv(unname(rv[["ub"]])), tolerance = 1e-10)
+  expect_equal(unname(rv[["D"]]), unname(rv[["b"]] - rv[["a"]]), tolerance = 1e-12)
+  expect_equal(unname(rv[["a"]]), Qv(unname(rv[["uc"]])) - unname(rv[["uc"]]) * qv(unname(rv[["uc"]])),
+               tolerance = 1e-10)
+})
+
+test_that("the profiled minimiser does not stop above the minimum it can reach", {
+  skip_on_cran()
+  ## Null draw 0 of the manifold test at alpha = -0.52, seed 912, n = 400, noise 2, design and
+  ## curve as in the equivalence study. Versions up to 0.3.1 returned 0.292312001128; a restarted
+  ## search reaches 0.1354 on the same data, and the statistic at the truth (1.865) bounds both.
+  alpha1 <- -0.6449
+  als <- seq(alpha1 + 1e-3, -0.502, length.out = 40)
+  bs <- vapply(als, eq_bstar, numeric(1)); ok <- is.finite(bs)
+  curve <- cbind(als[ok], bs[ok])
+  th0 <- c(1, 400, 0, 20, -0.52, approx(curve[, 1], curve[, 2], xout = -0.52)$y)
+  Tn <- eqfit_nullT(400L, 2, 1L, th0, c(0, 0, 0), curve, c(-0.641, -0.506), seed = 912L)
+  expect_true(is.finite(Tn))
+  expect_lt(Tn, 0.292312001128 - 1e-3)
+  expect_lt(Tn, 1.86)
+})

@@ -937,6 +937,15 @@ k4_fit_nalr <- function(x, y, start, J=12L, lambda=1, w=9L, p=2){
 #' @param alpha,beta kernel exponents
 #' @param theta tilt coefficients on shifted Legendre polynomials (orders 1 to 3)
 #' @param ngrid evaluation grid size
+#' @details The quantile function \eqn{Q(u)} is the integral of \eqn{q} from zero, so \code{a}
+#'   (tangent reading) and \code{b} (derivative reading) are quantile values on the same footing
+#'   as \code{\link{bc_q}}. The grid starts at \eqn{10^{-5}}; for \eqn{\alpha > -1} the mass below
+#'   the first node is added and the singular power factor is integrated exactly on every cell,
+#'   and \code{uc} and \code{ub} are refined between neighbouring nodes. For the beta kernel the
+#'   readings agree with the incomplete-beta values to about \eqn{10^{-8}} relative. Versions up to
+#'   0.3.1 started the integral at the first node with a trapezoid, which lowered \code{a} and
+#'   \code{b} by up to 5 per cent for \eqn{\alpha} between \eqn{-0.6435} and \eqn{-0.505}; the gap
+#'   \code{D} was almost unaffected.
 #' @return c(D, a, b, u_c, u_b); NA when the geometry is invalid
 #' @export
 eq_readings <- function(alpha, beta, theta=numeric(0), ngrid=20001L){

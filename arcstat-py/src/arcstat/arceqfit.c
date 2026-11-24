@@ -640,23 +640,50 @@ static double mf_sse3(const double *p, const void *vc) {
   return sse;
 }
 
-/* the profiled minimum: locate by least squares along a multistart in the manifold coordinate
- * (the hard direction), then descend the score statistic from each located neighbourhood.
- * st[0..2] give the (mu, sigma, alpha-centre) starting transforms. */
+/* the profiled minimum, in two stages.
+ *
+ * Stage 1 locates by least squares along a multistart in the manifold coordinate, then descends
+ * the score statistic from each located neighbourhood. st[0..2] give the (mu, sigma, alpha-centre)
+ * starting transforms. This stage is unchanged from earlier versions, so its result is an upper
+ * bound for the whole routine.
+ *
+ * Stage 2 exists because the score surface is rough at small noise. Nelder-Mead on it stops at
+ * points that are not minima, and stage 1 varies its starts in the alpha direction only, so it
+ * cannot leave the neighbourhood the least-squares fit selects: on recorded null draws it
+ * returned values above the minimum of its own objective: at alpha = -0.52 (40 draws) the
+ * restarts below lower the minimum in 19, by up to 0.36, and never raise it. From the best
+ * point, simplices are therefore restarted at the four corners of a half fraction in all three
+ * coordinates, at three scales, keeping the best, and the minimum can only decrease. */
+#define PM_IT 400
 static double ef_profmin(const mf_ctx *c, const double *st, int maxit) {
   double pas[5] = { st[2] - 2.2, st[2] - 1.1, st[2], st[2] + 1.1, st[2] + 2.2 };
-  double fbest = 1e30;
+  double fbest = 1e30, pb[3] = { st[0], st[1], st[2] };
   int it1 = maxit / 2 > 300 ? maxit / 2 : 300;
   for (int a0 = 0; a0 < 5; a0++) {
     double s0[3] = { st[0], st[1], pas[a0] }, pls[3], fls, p1[3], f1, p2[3], f2;
     /* stage 1: least squares locates the neighbourhood */
     arck4_nmd(mf_sse3, c, 3, s0, it1, pls, &fls);
     if (!isfinite(fls) || fls >= 1e29) continue;
-    /* stage 2: the score statistic itself, from the located point and from the raw start */
+    /* the score statistic itself, from the located point */
     arck4_nmd(mf_obj3, c, 3, pls, maxit, p1, &f1);
-    if (f1 < fbest) fbest = f1;
+    if (f1 < fbest) { fbest = f1; memcpy(pb, p1, sizeof(pb)); }
     arck4_nmd(mf_obj3, c, 3, p1, maxit, p2, &f2);
-    if (f2 < fbest) fbest = f2;
+    if (f2 < fbest) { fbest = f2; memcpy(pb, p2, sizeof(pb)); }
+  }
+  if (fbest >= 1e29) return fbest;
+  /* stage 2: restarts in every direction from the best point */
+  static const double scales[3] = { 0.1, 0.2, 0.1 };
+  for (int round = 0; round < 3; round++) {
+    double pc[3] = { pb[0], pb[1], pb[2] };
+    for (int k = 0; k < 8; k++) {
+      if (((k & 1) ^ ((k >> 1) & 1) ^ ((k >> 2) & 1)) != 0) continue;   /* half fraction */
+      double sc = scales[round], s[3], p1[3], f1;
+      s[0] = pc[0] + sc * ((k & 1) ? 1.0 : -1.0);
+      s[1] = pc[1] + sc * ((k & 2) ? 1.0 : -1.0);
+      s[2] = pc[2] + 2.0 * sc * ((k & 4) ? 1.0 : -1.0);
+      arck4_nmd(mf_obj3, c, 3, s, PM_IT, p1, &f1);
+      if (f1 < fbest) { fbest = f1; memcpy(pb, p1, sizeof(pb)); }
+    }
   }
   return fbest;
 }

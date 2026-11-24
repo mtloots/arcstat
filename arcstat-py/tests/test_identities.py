@@ -249,3 +249,27 @@ def test_pvalue_never_leaves_unit_interval_far_in_the_tail():
         u = [min(max(rng.random() ** pw, 1e-9), 1 - 1e-9) for _ in range(150)]
         p = a.al_pvalue(a.al_statistic(u), len(u))
         assert math.isfinite(p) and 0.0 <= p <= 1.0
+
+
+def test_equivalence_readings_match_high_precision_values():
+    # mpmath, 50 digits: columns alpha, beta, a, b, uc, ub. Mirrors test-backends.R. The integral
+    # of q starts at zero, which matters for alpha < -1/2 (the grid starts at 1e-5).
+    ref = [
+        (-0.6434, -0.966, 1.11192920277, 1.11193319294, 0.399776314154, 0.0709201279567),
+        (-0.6, -0.378118, 1.06789574393, 1.06789588842, 0.613422920343, 0.115438787487),
+        (-0.55, -0.9, 0.640186539725, 0.442993243486, 0.379310344828, 0.027298078942),
+        (-0.52, -1 + 1e-9, 0.512394550159, 0.228607978552, 0.342105263383, 0.00994857612993),
+        (-0.505, -1 + 1e-9, 0.465652925522, 0.104103098037, 0.33554817298, 0.00249685186998),
+        (-0.6, -1 + 1e-9, 0.843319480661, 0.756439847235, 0.375000000234, 0.0486043951283),
+        (-0.64, -0.99, 1.08223342321, 1.07374270604, 0.39263803681, 0.0678008353378),
+    ]
+    for al, be, ea, eb, euc, eub in ref:
+        r = a.eq_readings(al, be)
+        for key, exact in ((1, ea), (2, eb), (3, euc), (4, eub)):
+            assert abs(r[key] - exact) <= 1e-7 * abs(exact)
+    rt = a.eq_readings(-0.6, -0.9, [0.05, 0.02, 0.01])
+    assert abs(rt[1] - 0.826378472447) <= 1e-7 * 0.83
+    assert abs(rt[3] - 0.391886932994) <= 1e-7
+    rv = a.eq_readings_vsl(0.3, 0.6)
+    assert abs(rv[1] - 0.652733314402) <= 1e-7 * 0.66
+    assert abs(rv[3] - 0.440653844715) <= 1e-7

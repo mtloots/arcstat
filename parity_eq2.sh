@@ -15,7 +15,9 @@ vals <- c(
   bc_q(u, al, be), bc_cdf(bc_q(u, al, be), al, be), bc_pdf(bc_q(u, al, be), al, be),
   eq_ub_quad(al, be), eq_ub_quad(-0.75, -0.5),
   eq_E(al, be), eq_E(-0.55, -0.10), eq_E(-0.62, -0.60),
-  eq_bstar(-0.60), eq_bstar(-0.55), eq_bstar(-0.52))
+  eq_bstar(-0.60), eq_bstar(-0.55), eq_bstar(-0.52),
+  eq_readings(al, be), eq_readings(-0.52, -1 + 1e-9), eq_readings(-0.6, -0.9, c(0.05, 0.02, 0.01)),
+  eq_readings_vsl(0.3, 0.6))
 cat(sprintf("%.17g\n", vals), sep="")
 ' > "$OUT/r.txt"
 
@@ -34,6 +36,8 @@ vals += c.eq_ub_quad(al, be)
 vals += c.eq_ub_quad(-0.75, -0.5)
 vals += [c.eq_E(al, be), c.eq_E(-0.55, -0.10), c.eq_E(-0.62, -0.60)]
 vals += [c.eq_bstar(-0.60), c.eq_bstar(-0.55), c.eq_bstar(-0.52)]
+vals += c.eq_readings(al, be) + c.eq_readings(-0.52, -1 + 1e-9)
+vals += c.eq_readings(-0.6, -0.9, [0.05, 0.02, 0.01]) + c.eq_readings_vsl(0.3, 0.6)
 print("\n".join("%.17g" % v for v in vals))
 PY
 

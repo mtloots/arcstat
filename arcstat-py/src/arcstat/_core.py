@@ -651,7 +651,12 @@ def k4_band_trop_mean(x, theta, sigma, breaks):
 _lib.arceq_readings.argtypes = [_dp, _dp, _ip, _dp, _ip, _dp]
 def eq_readings(alpha, beta, theta=(), ngrid=20001):
     """Quantile-domain induction readings and equivalence discrepancy for tilted beta-kernel
-    quantile densities q(u) = u^alpha (1-u)^beta exp(sum theta_j P_j(u))"""
+    quantile densities q(u) = u^alpha (1-u)^beta exp(sum theta_j P_j(u)).
+
+    Returns [D, a, b, u_c, u_b]. Q is the integral of q from zero, so a and b are quantile values
+    on the same footing as bc_q; the mass below the first grid node (1e-5) is included and the
+    singular power factor is integrated exactly on every cell. Versions up to 0.3.1 omitted both,
+    which lowered a and b by up to 5 per cent for alpha in (-0.6435, -0.505)."""
     th = list(theta); out = (_ct.c_double * 5)()
     _lib.arceq_readings(_d1(alpha), _d1(beta), _i(len(th)),
                         _vec(th) if th else (_ct.c_double * 1)(), _i(ngrid), out)
@@ -659,8 +664,8 @@ def eq_readings(alpha, beta, theta=(), ngrid=20001):
 
 _lib.arceq_readings_vsl.argtypes = [_dp, _dp, _ip, _dp]
 def eq_readings_vsl(lam, delta, ngrid=20001):
-    """Quantile-domain induction readings and equivalence discrepancy for tilted beta-kernel
-    quantile densities q(u) = u^alpha (1-u)^beta exp(sum theta_j P_j(u))"""
+    """Induction readings [D, a, b, u_c, u_b] of the van Staden-Loots host
+    q(u) = (1-d) u^(l-1) + d (1-u)^(l-1); Q is closed form, and from zero for l > 0."""
     out = (_ct.c_double * 5)()
     _lib.arceq_readings_vsl(_d1(lam), _d1(delta), _i(ngrid), out)
     return list(out)

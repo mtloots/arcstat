@@ -1,3 +1,29 @@
+# arcstat (development version)
+
+* **`eq_readings()` returned readings that were too low, and so did `eqfit_bc()` and
+  `eqfit_bc_boot()`, which use it.** The routine integrates the quantile density from a grid that
+  starts at 1e-5 and used to set the integral to zero there. For a quantile density
+  u^alpha (1-u)^beta with alpha between -1 and -1/2 the mass below the first node is not small
+  (0.025 at alpha = -0.6), and the trapezoid rule overshoots on the first cells of a steep
+  singular curve. Both the tangent reading `a` and the derivative reading `b` were therefore too
+  low, by 1 to 5 per cent for alpha between -0.6435 and -0.505 and beta between -1 and the
+  equivalence curve; the gap `D = b - a` was almost unaffected. The integral now starts at zero:
+  the mass below the first node is added, the singular power factor is integrated exactly on
+  every cell, and the roots `uc` and `ub` are located between neighbouring nodes instead of being
+  snapped to the grid. Against 50-digit values the readings are now right to about 2e-9 relative
+  on the whole range, including beta = -1 + 1e-9. The observation-domain readings that
+  `eqfit_bc()` returns (`a`, `b`) and the bootstrap vector of `eqfit_bc_boot()` move with them.
+  `eq_readings_vsl()` had the same omission for lambda below 1 and now uses the closed-form integral.
+  The kappa readings (`k4_readings()`) use a different routine and are not affected.
+
+* The minimiser behind `eqfit_msim()` and `eqfit_nullT()` often stopped above the minimum of its
+  own objective, so the statistic was too large at those draws: on 40 null draws at alpha = -0.52
+  a restarted search found a lower value in 19, by up to 0.36. The five starts used to differ in
+  one coordinate only and nearly always ended at the same point. After them the search now
+  restarts from the best point along all three coordinates, at three scales, so the returned
+  minimum can only be lower than before. Statistics from these two functions can therefore be
+  smaller than in 0.3.1 at the same seed. The cost is about twice.
+
 # arcstat 0.3.1
 
 * `al_pvalue()` could return a **negative** probability far in the right tail. The Lugannani-Rice
