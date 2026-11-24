@@ -33,7 +33,10 @@
   location, right end of the support and alpha, least-squares starts, descents from every grid-local
   minimum, tight polishing, and an explicit search of the faces on which a design point leaves the
   support, where the statistic is discontinuous. It costs about 7 seconds of processor time per
-  draw at n = 400, against about 17 before. `maxit` no longer has an effect in these two
+  draw at n = 400, against about 17 before. On 50 null draws at each of alpha = -0.52 and -0.60
+  it was never above a separate, about ten times more expensive search by more than 1e-9, and on 40
+  of each never above a second one. Values are mostly LARGER than in 0.3.1 and 0.3.1.9000, whose low
+  values were interpolation artefacts: higher at 30 of 40 draws at -0.52 and 40 of 50 at -0.60. `maxit` no longer has an effect in these two
   functions.
 
 * `k4_tau34()` (and `k4_fit_lmom()`, which uses it) used a Gauss rule on an integrand singular at
