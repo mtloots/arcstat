@@ -1526,6 +1526,14 @@ arc_threads <- function(n) {
 k4_locus_k <- function(h)
   .C(C_arcbt_locus_k, as.double(h), as.integer(length(h)), k = double(length(h)), NAOK = TRUE)$k
 
+.arc_gate <- function(gate) {
+  if (identical(gate, "best")) return(1L)
+  if (identical(gate, FALSE)) return(0L)
+  stop("`gate` must be FALSE or \"best\"")
+}
+.arc_status <- function(v, d)
+  matrix(v, d$R, 5, byrow = TRUE, dimnames = list(d$names, c("status", "inf_rss", "inf_k", "inf_h", "inf_a")))
+
 #' Equivalence-constrained kappa fits with drift, many runs in one call
 #'
 #' Fits \eqn{y = g_0 + m x + g_1 F(x;\mu,\sigma,k,h)} with \eqn{(h,k)} held on the equivalence locus,
@@ -1534,7 +1542,7 @@ k4_locus_k <- function(h)
 #' starts, the best of which are carried to convergence and polished by a simplex. The starts of all
 #' runs share one pool of threads (\code{\link{arc_threads}}); results do not depend on the number.
 #'
-#' No fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the reading are
+#' Unless \code{gate = "best"}, no fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the reading are
 #' the caller's to judge; a caller who gates the free fit in that way must gate both fits, or a ratio
 #' of the two sums of squares can fall below one.
 #' @param x,y one run as two vectors, or many runs as two lists of vectors.
@@ -1544,6 +1552,15 @@ k4_locus_k <- function(h)
 #'   nodes are scanned, so the best one is found, but the fit is then a property of the table.
 #' @param bounds the box \code{(k_lo, k_hi, h_lo, h_hi)} the shape must lie in.
 #' @param drift \code{FALSE} holds the slope \eqn{m} at zero.
+#' @param gate \code{FALSE} takes the lowest minimum on the locus; \code{"best"} the lowest interior
+#'   minimum that is physical: \code{g1 > 0} and the tangent reading between 0 and \code{max(x)}. Where
+#'   there is none the fit is \code{NaN}: the edge of the physical set, or the end of the searched part
+#'   of the locus, is never returned as a fit. The
+#'   result then has \code{physical}, one row per run: \code{status}, 1 for an interior minimum that is
+#'   the lowest physical value found, 2 for an interior minimum with lower physical values towards the
+#'   edge of the set, 3 for physical points without an interior minimum, 0 for no physical point; and
+#'   \code{inf_rss, inf_k, inf_h, inf_a}, the lowest physical sum of squares found and the shape and
+#'   reading there, which in states 2 and 3 is a limit and not a fit.
 #' @param it1,it2 Levenberg--Marquardt steps per start, and for the best starts.
 #' @param keep how many distinct best starts of each run are carried to convergence.
 #' @return a list: \code{fit}, a matrix with one row per run and columns \code{g0, m, g1, mu, sigma,
@@ -1559,16 +1576,19 @@ k4_locus_k <- function(h)
 #' f$fit[1, c("k", "h", "rss", "a", "b")]
 #' @export
 k4eq_fit <- function(x, y, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), drift = TRUE,
-                     it1 = 12L, it2 = 150L, keep = 6L) {
+                     gate = FALSE, it1 = 12L, it2 = 150L, keep = 6L) {
   d <- .arc_runs(x, y); L <- .arc_locus(locus); np <- if (L$np > 0L) L$np else 2L
   stopifnot(length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4], keep >= 1L)
   .arc_sync_threads()
   r <- .C(C_arcbt_k4eq, d$X, d$Y, d$off, d$R, L$np, L$h, L$k, L$off, as.double(bounds),
           as.integer(drift), as.integer(it1), as.integer(it2), as.integer(keep),
-          out = double(11 * d$R), p = double(11 * np * d$R), NAOK = TRUE)
+          g <- .arc_gate(gate), out = double(11 * d$R), p = double(11 * np * d$R),
+          s = double(5 * d$R), NAOK = TRUE)
   nm <- c("g0", "m", "g1", "mu", "sigma", "k", "h", "rss", "a", "b", "piece")
-  list(fit = matrix(r$out, d$R, 11, byrow = TRUE, dimnames = list(d$names, nm)),
-       pieces = aperm(array(r$p, c(11L, np, d$R), list(nm, NULL, d$names)), c(3L, 1L, 2L)))
+  z <- list(fit = matrix(r$out, d$R, 11, byrow = TRUE, dimnames = list(d$names, nm)),
+            pieces = aperm(array(r$p, c(11L, np, d$R), list(nm, NULL, d$names)), c(3L, 1L, 2L)))
+  if (g) z$physical <- .arc_status(r$s, d)
+  z
 }
 
 #' Beta-companion fits with drift, free and equivalence-constrained, many runs in one call
@@ -1640,10 +1660,13 @@ bc_host_fit <- function(x, y, curve = NULL, it1 = 15L, it2 = 200L, keep = 6L, ep
 #'   a block length.
 #' @param maxit,it2 Nelder--Mead iterations per pass of a free refit; Levenberg--Marquardt steps of a
 #'   constrained one.
+#' @param gate \code{"best"} keeps a constrained replicate only if its refit, a local search from the
+#'   fitted point, ends at an interior physical minimum; the others are \code{NaN}.
 #' @return a list: \code{boot}, an array of \code{B} rows by columns by runs. The columns are the two
 #'   readings \code{a} and \code{b}, the fitted \code{k} and \code{h}, and for \code{k4_boot} also
 #'   \code{sel}, 1 if \eqn{n\log(rss_0/rss)-2<0} would choose \eqn{h=0} on that replicate and
-#'   \code{NaN} where \eqn{h} is held; and \code{block}, the block length of every run.
+#'   \code{NaN} where \eqn{h} is held; and \code{block}, the block length of every run. \code{k4eq_boot} adds
+#'   \code{lost}, the number of replicates of every run without a refit.
 #' @examples
 #' x <- seq(0, 20, length.out = 120)
 #' y <- 1 + 300 * k4_cdf(x, 9, 2, -0.3, 0.2) + sin(4321 * seq_along(x))
@@ -1668,7 +1691,7 @@ k4_boot <- function(x, y, fit, box, gev = FALSE, B = 400L, seed = 4207L, block =
 #' @rdname k4_boot
 #' @export
 k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), B = 400L,
-                      seed = 4207L, block = 0L, it2 = 100L) {
+                      seed = 4207L, block = 0L, it2 = 100L, gate = FALSE) {
   d <- .arc_runs(x, y); L <- .arc_locus(locus)
   fit <- as.matrix(fit)
   stopifnot(nrow(fit) == d$R, ncol(fit) >= 7L, length(bounds) == 4L, B >= 1L, block >= 0L)
@@ -1678,9 +1701,10 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
   .arc_sync_threads()
   r <- .C(C_arcbt_k4eq_boot, d$X, d$Y, d$off, d$R, as.double(t(fit[, 1:7, drop = FALSE])),
           as.integer(piece), L$np, L$h, L$k, L$off, as.double(bounds), as.integer(B),
-          .arc_seeds(seed, d$R), as.integer(block), as.integer(it2), bl = integer(d$R),
+          .arc_seeds(seed, d$R), as.integer(block), as.integer(it2), .arc_gate(gate), bl = integer(d$R),
           out = double(4 * B * d$R), NAOK = TRUE)
-  list(boot = .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h"), d$names), block = r$bl)
+  list(boot = b <- .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h"), d$names), block = r$bl,
+       lost = colSums(!is.finite(b[, "h", , drop = FALSE]), dims = 2L))
 }
 
 #' Free kappa fits with drift, many runs in one call
@@ -1700,6 +1724,9 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
 #' @param gev fit also the generalised extreme value submodel \eqn{h=0} and choose it when
 #'   \eqn{n\log(rss_0/rss)-2<0} (with \code{gate}, only if it is physical).
 #' @param hfix hold \eqn{h} there; \code{NA} searches it.
+#' @param infimum with \code{gate = "best"}, also report the status and the infimum over the physical
+#'   set of the four-parameter family, as columns \code{status, inf_rss, inf_k, inf_h, inf_a} (see
+#'   \code{\link{k4eq_fit}}). They describe the search with h free; the fit does not change.
 #' @return a matrix with one row per run and columns \code{g0, m, g1, mu, sigma, k, h, rss, a, b, gev,
 #'   dAIC, h_floor, physical}. \code{gev} is 1 where the submodel was chosen.
 #' @examples
@@ -1708,18 +1735,22 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
 #' k4_fit(x, y)[1, c("k", "h", "rss", "a", "b")]
 #' @export
 k4_fit <- function(x, y, bounds = c(-0.98, 0.95, -60, 4), floors = c(-60, -8, -3, -1.2, -0.5, 0),
-                   gate = FALSE, gev = FALSE, hfix = NA_real_, drift = TRUE, it1 = 12L, it2 = 200L, keep = 8L) {
+                   gate = FALSE, gev = FALSE, hfix = NA_real_, drift = TRUE, it1 = 12L, it2 = 200L, keep = 8L,
+                   infimum = FALSE) {
   d <- .arc_runs(x, y)
   stopifnot(length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4], length(hfix) == 1L)
   gate <- if (identical(gate, "best")) 2L else as.integer(isTRUE(gate))
+  if (infimum && (gate != 2L || is.finite(hfix))) stop("`infimum` goes with gate = \"best\" and free h")
   fl <- if (gate == 1L) floors else bounds[3]
   stopifnot(length(fl) >= 1L, all(is.finite(fl)), all(fl < bounds[4]))
   .arc_sync_threads()
   r <- .C(C_arcbt_k4fit, d$X, d$Y, d$off, d$R, as.double(bounds), as.double(fl), length(fl),
           as.integer(gate), as.integer(gev), as.double(hfix), as.integer(drift), as.integer(it1),
-          as.integer(it2), as.integer(keep), out = double(14 * d$R), NAOK = TRUE)$out
-  matrix(r, d$R, 14, byrow = TRUE, dimnames = list(d$names, c("g0", "m", "g1", "mu", "sigma", "k",
+          as.integer(it2), as.integer(keep), as.integer(infimum), out = double(14 * d$R),
+          s = double(5 * d$R), NAOK = TRUE)
+  z <- matrix(r$out, d$R, 14, byrow = TRUE, dimnames = list(d$names, c("g0", "m", "g1", "mu", "sigma", "k",
          "h", "rss", "a", "b", "gev", "dAIC", "h_floor", "physical")))
+  if (infimum) cbind(z, .arc_status(r$s, d)) else z
 }
 
 #' Wald (inverse Gaussian) curve fits, many runs in one call
@@ -1799,4 +1830,35 @@ k4_lmom_window <- function(x, y, lin, bounds = c(-0.98, 0.95, -8, 4), window = 2
           as.integer(window), as.integer(ngrid), as.integer(nmodel), out = double(10 * d$R), NAOK = TRUE)$out
   matrix(r, d$R, 10, byrow = TRUE, dimnames = list(d$names, c("k", "h", "obj", "t3", "t4", "lo", "hi",
          "nsol", "h_min", "h_max")))
+}
+
+#' Variance components of a multiverse of pipelines
+#'
+#' From the replicate readings of \code{\link{k4_mv_boot}}. All pipelines are refitted on the same
+#' replicates, so the column means share their resampling error. With \eqn{v} the mean variance of a
+#' column over replicates and \eqn{w} that mean less the mean covariance of two columns (the
+#' method-by-replicate variance), the variance of the \eqn{M} column means has expectation
+#' \eqn{\delta^2 + w/B}, where \eqn{\delta^2} is the variance of the pipelines' differences \emph{on
+#' this curve}. Subtracting \eqn{v/B}, as for independent methods, is too much when the columns are
+#' positively correlated. \eqn{\delta^2} still contains the sampling error of the curve itself, which
+#' affects the pipelines differently: \eqn{E\delta^2 = \tau^2 + w}. Use \code{delta2} to describe the
+#' spread on the curve at hand and \code{tau2} for a method component that would remain with the
+#' sampling error taken out. The step from \eqn{\delta^2} to \eqn{\tau^2} takes the bootstrap
+#' covariance as that of the estimates.
+#' @param A a matrix of readings, replicates by pipelines.
+#' @param frac pipelines with a smaller share of finite readings are left out; then only replicates
+#'   finite in all the others are used.
+#' @return a named vector: \code{M} and \code{B} used, \code{v}, \code{w}, \code{delta2},
+#'   \code{share_delta} (\eqn{\delta^2/(\delta^2+v)}), \code{tau2} and \code{share_tau}; \code{NaN} with
+#'   fewer than three pipelines or replicates.
+#' @examples
+#' set.seed(1); e <- rnorm(200)
+#' A <- cbind(e, e + 0.1, e + 0.2)      # differences without error: w = 0
+#' k4_mv_share(A)
+#' @export
+k4_mv_share <- function(A, frac = 0.6) {
+  A <- as.matrix(A)
+  stats::setNames(.C(C_arcbt_mvshare, as.double(t(A)), nrow(A), ncol(A), as.double(frac), out = double(8),
+                     NAOK = TRUE)$out,
+                  c("M", "B", "v", "w", "delta2", "share_delta", "tau2", "share_tau"))
 }

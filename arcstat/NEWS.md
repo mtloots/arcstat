@@ -1,3 +1,13 @@
+# arcstat (development version 0.3.1.9005)
+
+* `k4eq_fit(gate = "best")`: the lowest interior physical minimum on the locus, with the status and the
+  infimum of the physical set; where there is no interior minimum no fit and no reading are returned.
+  `k4eq_boot()` has `gate` and returns the number of replicates `lost`.
+
+* `k4_fit(gate = "best", infimum = TRUE)` reports the same status and infimum for the full family.
+
+* New `k4_mv_share()`: variance components of a multiverse with the covariance of the shared replicates.
+
 # arcstat (development version 0.3.1.9004)
 
 * New `wald_fit()`, `wald_cdf()` and `wald_readings()`: inverse Gaussian curves with drift, many runs

@@ -15,7 +15,8 @@ k4_fit(
   drift = TRUE,
   it1 = 12L,
   it2 = 200L,
-  keep = 8L
+  keep = 8L,
+  infimum = FALSE
 )
 }
 \arguments{
@@ -42,6 +43,10 @@ it is, the more often an unphysical minimum is the lowest at every floor.}
 \item{it1, it2}{Levenberg--Marquardt steps per start, and for the best starts.}
 
 \item{keep}{how many distinct best starts of each run are carried to convergence.}
+
+\item{infimum}{with \code{gate = "best"}, also report the status and the infimum over the physical
+set of the four-parameter family, as columns \code{status, inf_rss, inf_k, inf_h, inf_a} (see
+\code{\link{k4eq_fit}}). They describe the search with h free; the fit does not change.}
 }
 \value{
 a matrix with one row per run and columns \code{g0, m, g1, mu, sigma, k, h, rss, a, b, gev,

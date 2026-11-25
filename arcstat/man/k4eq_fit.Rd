@@ -10,6 +10,7 @@ k4eq_fit(
   locus = NULL,
   bounds = c(-0.98, 0.95, -60, 4),
   drift = TRUE,
+  gate = FALSE,
   it1 = 12L,
   it2 = 150L,
   keep = 6L
@@ -26,6 +27,16 @@ nodes are scanned, so the best one is found, but the fit is then a property of t
 \item{bounds}{the box \code{(k_lo, k_hi, h_lo, h_hi)} the shape must lie in.}
 
 \item{drift}{\code{FALSE} holds the slope \eqn{m} at zero.}
+
+\item{gate}{\code{FALSE} takes the lowest minimum on the locus; \code{"best"} the lowest interior
+minimum that is physical: \code{g1 > 0} and the tangent reading between 0 and \code{max(x)}. Where
+there is none the fit is \code{NaN}: the edge of the physical set, or the end of the searched part
+of the locus, is never returned as a fit. The
+result then has \code{physical}, one row per run: \code{status}, 1 for an interior minimum that is
+the lowest physical value found, 2 for an interior minimum with lower physical values towards the
+edge of the set, 3 for physical points without an interior minimum, 0 for no physical point; and
+\code{inf_rss, inf_k, inf_h, inf_a}, the lowest physical sum of squares found and the shape and
+reading there, which in states 2 and 3 is a limit and not a fit.}
 
 \item{it1, it2}{Levenberg--Marquardt steps per start, and for the best starts.}
 
@@ -47,7 +58,7 @@ starts, the best of which are carried to convergence and polished by a simplex. 
 runs share one pool of threads (\code{\link{arc_threads}}); results do not depend on the number.
 }
 \details{
-No fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the reading are
+Unless \code{gate = "best"}, no fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the reading are
 the caller's to judge; a caller who gates the free fit in that way must gate both fits, or a ratio
 of the two sums of squares can fall below one.
 }

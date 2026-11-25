@@ -661,19 +661,29 @@ def k4_locus_k(h):
     _lib.arcbt_locus_k(_vec(h), _i(len(h)), out)
     return list(out)
 
-_lib.arcbt_k4eq.argtypes = [_dp, _dp, _ip, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _ip, _dp, _dp]
-def k4eq_fit(x, y, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), drift=True, it1=12, it2=150, keep=6):
+def _gate(gate):
+    if gate not in (False, "best"):
+        raise ValueError('gate must be False or "best"')
+    return int(gate == "best")
+
+_lib.arcbt_k4eq.argtypes = [_dp, _dp, _ip, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _ip, _ip, _dp, _dp, _dp]
+def k4eq_fit(x, y, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), drift=True, gate=False,
+             it1=12, it2=150, keep=6):
     """Equivalence-constrained kappa fits with drift, many runs in one call; see the R function of the
     same name. Returns (fit, pieces): per run (g0, m, g1, mu, sigma, k, h, rss, a, b, piece), and the
-    same for the best fit on every piece of the locus. Nothing is refused on physical grounds."""
+    same for the best fit on every piece of the locus. Nothing is refused on physical
+    grounds unless gate is "best", which takes the lowest interior physical minimum (NaN where there is
+    none) and returns a third value: per run (status, inf_rss, inf_k, inf_h, inf_a)."""
     X, Y, off, R = _runs(x, y)
     n_p, h, k, toff = _locus(locus)
     npo = n_p if n_p > 0 else 2
     out = (_ct.c_double * (11 * R))()
     pv = (_ct.c_double * (11 * npo * R))()
+    st = (_ct.c_double * (5 * R))()
     _lib.arcbt_k4eq(_vec(X), _vec(Y), _iv(off), _i(R), _i(n_p), _vec(h), _vec(k), _iv(toff),
-                    _vec(bounds), _i(int(bool(drift))), _i(it1), _i(it2), _i(keep), out, pv)
-    return _rows(list(out), 11), [_rows(r, 11) for r in _rows(list(pv), 11 * npo)]
+                    _vec(bounds), _i(int(bool(drift))), _i(it1), _i(it2), _i(keep), _i(_gate(gate)), out, pv, st)
+    res = _rows(list(out), 11), [_rows(r, 11) for r in _rows(list(pv), 11 * npo)]
+    return res + (_rows(list(st), 5),) if gate == "best" else res
 
 _lib.arcbt_host.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _ip, _dp, _dp]
 def bc_host_fit(x, y, curve=None, it1=15, it2=200, keep=6, eps=1e-6, dense=False):
@@ -690,20 +700,26 @@ def bc_host_fit(x, y, curve=None, it1=15, it2=200, keep=6, eps=1e-6, dense=False
                     _i(len(cal)), _d1(eps), _i(int(bool(dense))), _i(it1), _i(it2), _i(keep), f, c)
     return _rows(list(f), 10), _rows(list(c), 10)
 
-_lib.arcbt_k4fit.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _dp, _ip, _ip, _ip, _ip, _dp]
+_lib.arcbt_k4fit.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _dp, _ip, _ip, _ip, _ip, _ip, _dp, _dp]
 def k4_fit(x, y, bounds=(-0.98, 0.95, -60.0, 4.0), floors=(-60, -8, -3, -1.2, -0.5, 0), gate=False,
-           gev=False, hfix=None, drift=True, it1=12, it2=200, keep=8):
+           gev=False, hfix=None, drift=True, it1=12, it2=200, keep=8, infimum=False):
     """Free kappa fits with drift from the built-in start grid, many runs in one call; see the R
     function of the same name. gate: False, True or "best". Returns per run (g0, m, g1, mu, sigma, k,
-    h, rss, a, b, gev, dAIC, h_floor, physical)."""
+    h, rss, a, b, gev, dAIC, h_floor, physical), and with infimum=True (gate "best", h free) also (status, inf_rss, inf_k,
+    inf_h, inf_a)."""
     X, Y, off, R = _runs(x, y)
     g = 2 if gate == "best" else int(gate is True)
     fl = list(floors) if g == 1 else [bounds[2]]
     out = (_ct.c_double * (14 * R))()
+    st = (_ct.c_double * (5 * R))()
+    if infimum and (g != 2 or hfix is not None):
+        raise ValueError('infimum goes with gate="best" and free h')
     _lib.arcbt_k4fit(_vec(X), _vec(Y), _iv(off), _i(R), _vec(bounds), _vec(fl), _i(len(fl)), _i(g),
                      _i(int(bool(gev))), _d1(float("nan") if hfix is None else float(hfix)),
-                     _i(int(bool(drift))), _i(it1), _i(it2), _i(keep), out)
-    return _rows(list(out), 14)
+                     _i(int(bool(drift))), _i(it1), _i(it2), _i(keep),
+                     _i(int(bool(infimum))), out, st)
+    res = _rows(list(out), 14)
+    return [a + b for a, b in zip(res, _rows(list(st), 5))] if infimum else res
 
 _lib.arcbt_wald.argtypes = [_dp, _dp, _ip, _ip, _ip, _ip, _ip, _ip, _dp]
 def wald_fit(x, y, drift=True, it1=25, it2=200, keep=6):
@@ -743,6 +759,14 @@ def k4_lmom_window(x, y, lin, bounds=(-0.98, 0.95, -8.0, 4.0), window=21, ngrid=
                      _i(nmodel), out)
     return _rows(list(out), 10)
 
+_lib.arcbt_mvshare.argtypes = [_dp, _ip, _ip, _dp, _dp]
+def k4_mv_share(A, frac=0.6):
+    """Variance components of the pipelines of k4_mv_boot; see the R function of the same name. Returns
+    (M, B, v, w, delta2, share_delta, tau2, share_tau)."""
+    out = (_ct.c_double * 8)()
+    _lib.arcbt_mvshare(_vec([v for r in A for v in r]), _i(len(A)), _i(len(A[0])), _d1(frac), out)
+    return list(out)
+
 def _seeds(seed, R):
     s = [int(seed) + r for r in range(R)] if not hasattr(seed, "__len__") else [int(v) for v in seed]
     if len(s) != R:
@@ -773,11 +797,12 @@ def k4_boot(x, y, fit, box, gev=False, B=400, seed=4207, block=0, maxit=800):
     return [_rows(r, 5) for r in _rows(list(out), 5 * B)], list(bl)
 
 _lib.arcbt_k4eq_boot.argtypes = [_dp, _dp, _ip, _ip, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip,
-                                 _ip, _ip, _dp]
+                                 _ip, _ip, _ip, _dp]
 def k4eq_boot(x, y, fit, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), B=400, seed=4207, block=0,
-              it2=100):
+              it2=100, gate=False):
     """The bootstrap of a k4eq_fit, refitted on its own piece of the locus. Returns (boot, block):
-    boot[r][b] is (a, b, k, h)."""
+    boot[r][b] is (a, b, k, h). gate="best" keeps only refits that end at an interior physical
+    minimum; the others are NaN."""
     X, Y, off, R = _runs(x, y)
     n_p, h, k, toff = _locus(locus)
     F = [float(v) for row in fit for v in list(row)[:7]]
@@ -787,7 +812,7 @@ def k4eq_boot(x, y, fit, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), B=400, se
     bl = (_ct.c_int * R)(); out = (_ct.c_double * (4 * B * R))()
     _lib.arcbt_k4eq_boot(_vec(X), _vec(Y), _iv(off), _i(R), _vec(F), _iv(piece), _i(n_p), _vec(h),
                          _vec(k), _iv(toff), _vec(bounds), _i(B), _iv(_seeds(seed, R)), _i(block),
-                         _i(it2), bl, out)
+                         _i(it2), _i(_gate(gate)), bl, out)
     return [_rows(r, 4) for r in _rows(list(out), 4 * B)], list(bl)
 
 _lib.arck4_mv_boot.argtypes = [_dp, _dp, _ip, _dp, _ip, _ip, _dp, _ip, _ip, _dp, _dp]

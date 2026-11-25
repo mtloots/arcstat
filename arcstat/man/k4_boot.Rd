@@ -26,7 +26,8 @@ k4eq_boot(
   B = 400L,
   seed = 4207L,
   block = 0L,
-  it2 = 100L
+  it2 = 100L,
+  gate = FALSE
 )
 }
 \arguments{
@@ -56,12 +57,16 @@ not extrapolated. An interpolated table puts a kink in the objective at each of 
 nodes are scanned, so the best one is found, but the fit is then a property of the table.}
 
 \item{bounds}{the box \code{(k_lo, k_hi, h_lo, h_hi)} the shape must lie in.}
+
+\item{gate}{\code{"best"} keeps a constrained replicate only if its refit, a local search from the
+fitted point, ends at an interior physical minimum; the others are \code{NaN}.}
 }
 \value{
 a list: \code{boot}, an array of \code{B} rows by columns by runs. The columns are the two
   readings \code{a} and \code{b}, the fitted \code{k} and \code{h}, and for \code{k4_boot} also
   \code{sel}, 1 if \eqn{n\log(rss_0/rss)-2<0} would choose \eqn{h=0} on that replicate and
-  \code{NaN} where \eqn{h} is held; and \code{block}, the block length of every run.
+  \code{NaN} where \eqn{h} is held; and \code{block}, the block length of every run. \code{k4eq_boot} adds
+  \code{lost}, the number of replicates of every run without a refit.
 }
 \description{
 \code{k4_boot} resamples the residuals of a fitted free kappa curve in moving blocks and refits it

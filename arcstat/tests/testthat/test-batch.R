@@ -34,7 +34,7 @@ test_that("results are bit-identical on 1, 2 and 8 threads", {
     e <- k4eq_fit(X, Y)
     list(e, k4eq_fit(X, Y, cbind(seq(-1, 0.4, 0.2), k4_locus_k(seq(-1, 0.4, 0.2)))),
          bc_host_fit(X, Y, curve, keep = 3L), k4_fit(X, Y, gate = TRUE, gev = TRUE),
-         wald_fit(X, Y), k4_fit(X, Y, drift = FALSE), k4_lmom_window(X[1], Y[1], c(1, 0.2, 300), ngrid = 400L, nmodel = 400L),
+         k4eq_fit(X, Y, gate = "best"), k4_fit(X, Y, gate = "best", infimum = TRUE), k4eq_boot(X, Y, e$fit, B = 3L, gate = "best"), wald_fit(X, Y), k4_fit(X, Y, drift = FALSE), k4_lmom_window(X[1], Y[1], c(1, 0.2, 300), ngrid = 400L, nmodel = 400L),
          k4_boot(X, Y, fit, box, gev = c(FALSE, TRUE), B = 6L), k4eq_boot(X, Y, e$fit, B = 6L),
          k4_mv_boot(R2$x, R2$y, B = 2L, bounds = box, maxit = 300L),
          k4_fit_varpro(R1$x, R1$y, rbind(c(9, log(2), 0, 0.1), c(8, 0, 0, -1)), bounds = box),
@@ -208,4 +208,32 @@ test_that("windowed L-moment matching is the R construction and recovers a shape
     expect_lt(sum((tau(um, k4_q(um, 0, 1, L[["k"]], L[["h"]])) - e)^2), 1e-12)
     expect_true(L[["nsol"]] >= 1 && L[["h_min"]] <= h + 0.1 && L[["h_max"]] >= h - 0.1)   # not always unique
   }
+})
+
+test_that("gated constrained fit: the ungated one where that is physical, none where there is none", {
+  u <- k4eq_fit(X, Y); g <- k4eq_fit(X, Y, gate = "best")
+  expect_true(all(g$physical[, "status"] %in% 1:2))
+  expect_equal(g$fit[, "rss"], u$fit[, "rss"], tolerance = 1e-9)
+  expect_true(all(g$physical[, "inf_rss"] <= g$fit[, "rss"]))
+  ## a falling curve: nothing rises to a fit, and what is returned is not a fit
+  y <- 300 - 250 * k4_cdf(R1$x, 9, 2, 0.1, -0.5) + sin(4321 * seq_along(R1$x))
+  expect_lt(k4eq_fit(R1$x, y)$fit[1, "g1"], 0)
+  n <- k4eq_fit(R1$x, y, gate = "best")
+  expect_true(n$physical[1, "status"] %in% c(0, 3) == is.nan(n$fit[1, "rss"]))
+  if (is.finite(n$fit[1, "rss"])) expect_true(n$fit[1, "g1"] > 0 && n$fit[1, "a"] > 0)
+  b <- k4eq_boot(X, Y, g$fit, B = 6L, gate = "best"); b0 <- k4eq_boot(X, Y, g$fit, B = 6L)
+  expect_identical(unname(b$lost), unname(colSums(is.nan(b$boot[, "a", ]))))
+  expect_lt(max(abs(b$boot - b0$boot), na.rm = TRUE), 1e-4)
+  f <- k4_fit(X, Y, gate = "best", infimum = TRUE)
+  expect_identical(f[, 1:14], k4_fit(X, Y, gate = "best"))
+  expect_true(all(f[, "status"] == 1) && all(f[, "inf_rss"] <= f[, "rss"]))
+  expect_error(k4eq_fit(X, Y, gate = TRUE))
+})
+
+test_that("multiverse components are the covariance identity", {
+  set.seed(3); A <- matrix(stats::rnorm(240), 40) + rep(1:6, each = 40) / 10 + stats::rnorm(40)
+  C <- stats::cov(A); v <- mean(diag(C)); w <- v - mean(C[upper.tri(C)]); m <- stats::var(colMeans(A))
+  expect_equal(k4_mv_share(A)[c("v", "w", "delta2", "tau2")], c(v = v, w = w, delta2 = max(0, m - w / 40), tau2 = max(0, m - w * 41 / 40)), tolerance = 1e-10)
+  B <- A; B[1:30, 2] <- NaN; B[1, 1] <- NaN
+  expect_equal(k4_mv_share(B), k4_mv_share(A[-1, -2]), tolerance = 1e-12)
 })
