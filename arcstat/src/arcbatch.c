@@ -4,6 +4,8 @@
  *   arcbt_host       beta-companion curve with drift, free and on its equivalence curve
  *   arcbt_k4_boot    residual bootstrap of a free (or h = 0) kappa fit
  *   arcbt_k4eq_boot  residual bootstrap of the constrained kappa fit
+ *   arcbt_wald       inverse Gaussian curve with drift, with its readings
+ *   arcbt_lmomw      L-moment matching over the observed window
  *   arcbt_locus_k    the equivalence locus k(h) itself
  *
  * The mean curve is g0 + m x + g1 F((x - location)/scale; shape). It is linear in (g0, m, g1), which
@@ -116,14 +118,16 @@ void arcbt_locus_k(const double *h, const int *n, double *k) {
  *   BT_K4     kappa, q[2] = k, q[3] = h;  BT_K4H the same with h held (h0)
  *   BT_FREE   companion, q[2] = log(1+alpha), q[3] = log(1+beta)
  *   BT_CON    companion, q[2] = alpha, beta by linear interpolation of a table, or, without a table,
- *             the exact equivalence curve */
-enum { BT_FULL = 0, BT_TAB = 1, BT_K4 = 2, BT_K4H = 3, BT_FREE = 4, BT_CON = 5 };
+ *             the exact equivalence curve
+ *   BT_WALD   inverse Gaussian, q = (log mu, log lambda) */
+enum { BT_FULL = 0, BT_TAB = 1, BT_K4 = 2, BT_K4H = 3, BT_FREE = 4, BT_CON = 5, BT_WALD = 6 };
 typedef struct {
   const double *x, *y;
   int n, d, kind;
   const double *tx, *ty; int nt;       /* shape table */
   double lo[BT_DMAX], hi[BT_DMAX];     /* box of q */
   double klo, khi, h0;
+  int nodrift;                         /* hold m at 0 */
   int phys;                            /* admit only fits that are physical, see bt_physical */
   double *F;                           /* n: curve of the simplex objective */
   double *W;                           /* (4 + 2d + 5) n: work of the LM step */
@@ -136,6 +140,7 @@ static void bt_shape(const bt_ctx *c, const double *q, double *s1, double *s2) {
   case BT_K4:   *s1 = q[2]; *s2 = q[3]; break;
   case BT_K4H:  *s1 = q[2]; *s2 = c->h0; break;
   case BT_FREE: *s1 = expm1(q[2]); *s2 = expm1(q[3]); break;
+  case BT_WALD: *s1 = *s2 = 0.0; break;
   default:      *s1 = q[2];
                 if (c->nt > 0) *s2 = arcef_interp(c->tx, c->ty, c->nt, q[2], 1);
                 else arceq2_bstar(&q[2], s2);
@@ -154,9 +159,49 @@ static void bt_bc_curve(const double *x, int n, double mu, double sr, double a, 
     if (!isfinite(F[i])) { F[i] = NAN; s = NAN; }
   }
 }
+/* exp(t^2) erfc(t) for t >= 0 (continued fraction beyond 4) */
+static double bt_erfcx(double t) {
+  if (t < 4.0) return exp(t * t) * erfc(t);
+  double f = 0.0;
+  for (int k = 25; k >= 1; k--) f = 0.5 * k / (t + f);
+  return 0.56418958354775628695 / (t + f);
+}
+/* Wald (inverse Gaussian) distribution function at x = mu t, phi = lambda/mu: with z = sqrt(phi/t),
+ * Phi(z(t-1)) + exp(2 phi) Phi(-z(t+1)), the product written as exp(-z^2 (t-1)^2/2) erfcx/2, which
+ * neither overflows nor cancels */
+static double bt_waldF(double t, double phi) {
+  if (!(t > 0.0)) return 0.0;
+  double z = sqrt(phi / t), a = z * (t - 1.0), b = z * (t + 1.0);
+  return 0.5 * erfc(-a * M_SQRT1_2) + 0.5 * exp(-0.5 * a * a) * bt_erfcx(b * M_SQRT1_2);
+}
+/* (tangent, second, mode) in units of mu. The mode is the root of phi t^2 + 3 t - phi = 0; the second
+ * reading the inflection of the density below it, where P^2 + 1.5 t^2 - phi t = 0 with
+ * P = (phi (1 - t^2) - 3 t)/2; both exist for every phi > 0, so there is no grid to miss them */
+static void bt_wald_read(double phi, double *o) {
+  o[0] = o[1] = o[2] = NAN;
+  if (!(phi > 0.0) || !isfinite(phi)) return;
+  double t = 2.0 * phi / (3.0 + sqrt(9.0 + 4.0 * phi * phi));
+  double lf = 0.5 * log(phi / (6.283185307179586476925286766559 * t * t * t)) - phi * (t - 1.0) * (t - 1.0) / (2.0 * t);
+  o[2] = t;
+  o[0] = t - bt_waldF(t, phi) / exp(lf);
+  double lo = 0.0, hi = 1.0;                              /* s = t/mode in (0, 1) */
+  for (int i = 0; i < 100; i++) {
+    double s = 0.5 * (lo + hi), v = s * t;
+    /* P = phi (1 - v^2)/2 - 1.5 v, zero at the mode, so it is written from there */
+    double P = 0.5 * (1.0 - s) * t * (phi * t * (1.0 + s) + 3.0);
+    if (P * P + v * (1.5 * v - phi) > 0.0) lo = s; else hi = s;
+    if (hi - lo < 1e-16) break;
+  }
+  o[1] = 0.5 * (lo + hi) * t;
+}
 /* the standard curve at q; 0 if q is inadmissible */
 static int bt_curve(const bt_ctx *c, const double *q, double *F) {
   for (int j = 0; j < c->d; j++) if (!(q[j] >= c->lo[j] && q[j] <= c->hi[j])) return 0;
+  if (c->kind == BT_WALD) {
+    double mu = exp(q[0]), phi = exp(q[1] - q[0]);
+    for (int i = 0; i < c->n; i++) if (!isfinite(F[i] = bt_waldF(c->x[i] / mu, phi))) return 0;
+    return 1;
+  }
   double s1, s2, sc = exp(q[1]);
   if (!isfinite(sc) || !(sc > 0.0)) return 0;
   bt_shape(c, q, &s1, &s2);
@@ -186,7 +231,8 @@ static int bt_linear(const bt_ctx *c, const double *F, bt_lin *L) {
     double u = c->x[i] - a, v = F[i] - b;
     xx += u * u; xF += u * v; FF += v * v; xy += u * (c->y[i] - d);
   }
-  if (!(xx > 0.0)) return 0;
+  if (!c->nodrift && !(xx > 0.0)) return 0;
+  if (c->nodrift) { xF = xy = 0.0; xx = HUGE_VAL; }
   double g = xF / xx, D = 0, e = 0, sy = xy / xx;
   for (int i = 0; i < n; i++) {                        /* the part of F off (1, x), and y on it */
     double u = c->x[i] - a, w = F[i] - b - g * u;
@@ -221,6 +267,16 @@ static double bt_obj(const double *q, const void *vc) {
 static int bt_jac(const bt_ctx *c, const double *q, int dj, double *F, double *J, double *P, double *D5) {
   int n = c->n;
   double s1, s2, sc = exp(q[1]);
+  if (c->kind == BT_WALD) {
+    if (!bt_curve(c, q, F)) return 0;
+    for (int j = 0; j < dj; j++) {
+      double a[BT_DMAX] = {q[0], q[1]}, b[BT_DMAX] = {q[0], q[1]}, *C = J + (size_t)j * n;
+      a[j] = fmin(a[j] + 1e-5, c->hi[j]); b[j] = fmax(b[j] - 1e-5, c->lo[j]);
+      if (!bt_curve(c, a, C) || !bt_curve(c, b, P)) return 0;
+      for (int i = 0; i < n; i++) C[i] = (C[i] - P[i]) / (a[j] - b[j]);
+    }
+    return 1;
+  }
   bt_shape(c, q, &s1, &s2);
   if (c->kind <= BT_K4H) {
     for (int i = 0; i < n; i++) {
@@ -324,6 +380,10 @@ static double bt_lm(const bt_ctx *c, double *q, int dj, int maxit) {
       }
       double qn[BT_DMAX] = {0};
       for (int k = 0; k < c->d; k++) qn[k] = q[k];
+      if (c->kind == BT_WALD) {                        /* at most two log units */
+        double big = fmax(fabs(st[0]), fabs(st[1]));
+        if (big > 2.0) { st[0] *= 2.0 / big; st[1] *= 2.0 / big; }
+      }
       for (int k = 0; k < dj; k++) {
         qn[k] += st[k];
         if (qn[k] < c->lo[k]) qn[k] = c->lo[k];
@@ -463,7 +523,7 @@ static int bt_select(const bt_task *t, int d, const double *v, const double *Q, 
     for (int e = 0; e < m && !dup; e++) {
       const double *qe = Q + BT_DMAX * (size_t)idx[e];
       dup = fabs(v[t->s0 + b] - v[idx[e]]) <= 1e-4 * v[idx[e]] &&
-            fabs(qb[0] - qe[0]) <= 1e-2 * exp(qe[1]);
+            fabs(qb[0] - qe[0]) <= 1e-2 * (d == 2 ? 1.0 : exp(qe[1]));
       for (int k = 1; k < d && dup; k++) dup = fabs(qb[k] - qe[k]) <= 1e-2;
     }
     if (!dup) idx[m++] = t->s0 + b;
@@ -590,6 +650,7 @@ static int bt_run(const bt_task *task, int T, const double *st, int M, bt_mk mk,
 
 /* ==================================== kappa on the locus ====================================== */
 typedef struct {
+  int nodrift;
   const double *X, *Y; const int *off; int np; const double *TH, *TK; const int *toff;
   const double *bnd; double tlo, thi, tmid;   /* t of h_hi, h_lo, and of h = 0 held between them */
 } bt_kdat;
@@ -612,7 +673,7 @@ static void bt_mk_k(const void *data, const bt_task *t, bt_ctx *c) {
   memset(c, 0, sizeof *c);
   c->x = D->X + D->off[t->run]; c->y = D->Y + D->off[t->run];
   c->n = D->off[t->run + 1] - D->off[t->run];
-  c->d = 3; c->kind = t->kind;
+  c->d = 3; c->kind = t->kind; c->nodrift = D->nodrift;
   c->lo[0] = c->lo[1] = -HUGE_VAL; c->hi[0] = c->hi[1] = HUGE_VAL;
   c->klo = D->bnd[0]; c->khi = D->bnd[1];
   if (t->kind == BT_FULL) {              /* piece 0: h <= 0, 1: h >= 0, 2: all of it */
@@ -637,12 +698,12 @@ static void bt_k_readings(const double *o, double *ab) {
  * same 11 for the best fit on every piece, pieces within runs; the whole locus is searched as two, h <= 0 and h >= 0. */
 void arcbt_k4eq(const double *X, const double *Y, const int *off, const int *nr,
                 const int *npiece, const double *TH, const double *TK, const int *toff,
-                const double *bounds, const int *it1, const int *it2, const int *K,
-                double *out, double *outp) {
+                const double *bounds, const int *drift, const int *it1, const int *it2,
+                const int *K, double *out, double *outp) {
   int R = *nr, np = *npiece > 0 ? *npiece : 2, T = R * np;
   static const double pm[5] = {0.15, 0.3, 0.5, 0.7, 0.9}, ps[3] = {0.04, 0.12, 0.35};
   int nh = 8, ns = 5 * 3 * nh;
-  bt_kdat D = {X, Y, off, *npiece, TH, TK, toff, bounds, 0, 0, 0};
+  bt_kdat D = {!*drift, X, Y, off, *npiece, TH, TK, toff, bounds, 0, 0, 0};
   bt_kdat_init(&D);
   bt_task *task = (bt_task *)malloc((size_t)T * sizeof(bt_task));
   double *st = (double *)malloc((size_t)T * ns * BT_DMAX * sizeof(double));
@@ -726,10 +787,10 @@ static void bt_mk_f(const void *data, const bt_task *t, bt_ctx *c) {
   c->lo[3] = D->box[2]; c->hi[3] = D->box[3]; c->h0 = 0.0;
 }
 /* the fits of the runs in act[0..na-1], all in one pool; kind BT_K4, or BT_K4H with h = h0 */
-typedef struct { bt_fdat f; double h0; int phys; } bt_fh;
+typedef struct { bt_fdat f; double h0; int phys, nodrift; } bt_fh;
 static void bt_mk_fh(const void *data, const bt_task *t, bt_ctx *c) {
   const bt_fh *D = (const bt_fh *)data;
-  bt_mk_f(&D->f, t, c); c->h0 = D->h0; c->phys = D->phys;
+  bt_mk_f(&D->f, t, c); c->h0 = D->h0; c->phys = D->phys; c->nodrift = D->nodrift;
 }
 /* starts off the paper's grid, at most 320: scales from a twenty-fifth of the window to three windows
  * and shapes up to the corner (1/2, 1) and beyond h = 1. Some of the lowest minima (falling curves,
@@ -754,10 +815,10 @@ static int bt_wide(const double *x, int n, const double *box, int held, double *
   return m;
 }
 static void bt_freefit(const double *X, const double *Y, const int *off, const int *act, int na,
-                       const double *box, double hfix, int phys, int it1, int it2, int K,
+                       const double *box, double hfix, int phys, int drift, int it1, int it2, int K,
                        double *res /* 10 na */) {
   int held = isfinite(hfix);
-  bt_fh D; D.f.X = X; D.f.Y = Y; D.f.off = off; memcpy(D.f.box, box, sizeof D.f.box); D.h0 = held ? hfix : 0.0; D.phys = phys;
+  bt_fh D; D.f.X = X; D.f.Y = Y; D.f.off = off; memcpy(D.f.box, box, sizeof D.f.box); D.h0 = held ? hfix : 0.0; D.phys = phys; D.nodrift = !drift;
   bt_task *task = (bt_task *)malloc((size_t)na * sizeof(bt_task));
   double *st = (double *)malloc((size_t)na * 700 * BT_DMAX * sizeof(double));
   double *bv = (double *)malloc((size_t)na * sizeof(double));
@@ -797,7 +858,8 @@ static void bt_freefit(const double *X, const double *Y, const int *off, const i
  * physical). out: 14 per run (g0, m, g1, mu, sg, k, h, rss, a, b, gev, dAIC, floor, physical). */
 void arcbt_k4fit(const double *X, const double *Y, const int *off, const int *nr, const double *bounds,
                  const double *floors, const int *nfl, const int *gate, const int *gevsel,
-                 const double *hfix, const int *it1, const int *it2, const int *K, double *out) {
+                 const double *hfix, const int *drift, const int *it1, const int *it2, const int *K,
+                 double *out) {
   int R = *nr, held = isfinite(*hfix);
   int *act = (int *)malloc((size_t)R * sizeof(int)), na = R;
   double *res = (double *)malloc((size_t)R * 10 * sizeof(double));
@@ -807,7 +869,7 @@ void arcbt_k4fit(const double *X, const double *Y, const int *off, const int *nr
     int nf = (held || *gate != 1) ? 1 : *nfl;
     for (int f = 0; f < nf && na > 0; f++) {
       double box[4] = {bounds[0], bounds[1], held ? bounds[2] : floors[f], bounds[3]};
-      bt_freefit(X, Y, off, act, na, box, *hfix, *gate == 2, *it1, *it2, *K, res);
+      bt_freefit(X, Y, off, act, na, box, *hfix, *gate == 2, *drift, *it1, *it2, *K, res);
       int nn = 0;
       for (int i = 0; i < na; i++) {
         int r = act[i];
@@ -821,7 +883,7 @@ void arcbt_k4fit(const double *X, const double *Y, const int *off, const int *nr
     }
     if (*gevsel && !held) {
       for (int r = 0; r < R; r++) act[r] = r;
-      bt_freefit(X, Y, off, act, R, bounds, 0.0, 0, *it1, *it2, *K, res);
+      bt_freefit(X, Y, off, act, R, bounds, 0.0, 0, *drift, *it1, *it2, *K, res);
       for (int r = 0; r < R; r++) {
         double *o = out + 14 * (size_t)r, *g = res + 10 * (size_t)r;
         int n = off[r + 1] - off[r], ph = bt_physical(g, X + off[r], n);
@@ -841,8 +903,8 @@ void arcbt_k4fit(const double *X, const double *Y, const int *off, const int *nr
 int arcbt_k4one(const double *x, const double *y, int n, const double *box, double hfix, double *o8) {
   int off[2] = {0, n}, act[1] = {0};
   double r[10];
-  bt_freefit(x, y, off, act, 1, box, hfix, 1, 12, 200, 8, r);
-  if (!isfinite(r[7])) bt_freefit(x, y, off, act, 1, box, hfix, 0, 12, 200, 8, r);
+  bt_freefit(x, y, off, act, 1, box, hfix, 1, 1, 12, 200, 8, r);
+  if (!isfinite(r[7])) bt_freefit(x, y, off, act, 1, box, hfix, 0, 1, 12, 200, 8, r);
   for (int i = 0; i < 8; i++) o8[i] = r[i];
   return isfinite(r[7]) && r[7] < 1e11;
 }
@@ -955,6 +1017,285 @@ void arcbt_host(const double *X, const double *Y, const int *off, const int *nr,
   free(task); free(st); free(bq); free(bv);
 }
 
+/* ========================================= the Wald curve ====================================== */
+typedef struct { const double *X, *Y; const int *off; int nodrift; } bt_wdat;
+static void bt_mk_w(const void *data, const bt_task *t, bt_ctx *c) {
+  const bt_wdat *D = (const bt_wdat *)data;
+  memset(c, 0, sizeof *c);
+  c->x = D->X + D->off[t->run]; c->y = D->Y + D->off[t->run];
+  c->n = D->off[t->run + 1] - D->off[t->run];
+  c->kind = BT_WALD; c->d = 2; c->nodrift = D->nodrift;
+  c->lo[0] = c->lo[1] = log(1e-8); c->hi[0] = log(1e8); c->hi[1] = log(1e12);
+}
+/* out: 10 per run (g0, m, g1, mu, lambda, phi, rss, a, b, mode); the readings are those of the fitted
+ * shape, whatever the sign of g1 and wherever they lie */
+void arcbt_wald(const double *X, const double *Y, const int *off, const int *nr, const int *drift,
+                const int *it1, const int *it2, const int *K, double *out) {
+  int R = *nr;
+  static const double m0[7] = {2, 4, 6, 9, 13, 20, 35}, l0[7] = {2, 10, 50, 200, 800, 3000, 12000};
+  static const double fr[5] = {0.1, 0.25, 0.5, 1.0, 2.5};
+  bt_wdat D = {X, Y, off, !*drift};
+  bt_task *task = (bt_task *)malloc((size_t)R * sizeof(bt_task));
+  double *st = (double *)calloc((size_t)R * 154 * BT_DMAX, sizeof(double));
+  double *bv = (double *)malloc((size_t)R * sizeof(double));
+  double *bq = (double *)malloc((size_t)R * BT_DMAX * sizeof(double));
+  for (int i = 0; i < 10 * R; i++) out[i] = NAN;
+  if (task && st && bv && bq) {
+    int M = 0;
+    for (int r = 0; r < R; r++) {
+      const double *x = X + off[r], *y = Y + off[r];
+      int n = off[r + 1] - off[r], w = n < 21 ? (n % 2 ? n : n - 1) : 21, nm = 0, k = 0;
+      double mm[22], *ys = (double *)malloc((size_t)n * sizeof(double)), lo = y[0], hi = y[0], xm = x[0], md = 0.0;
+      for (int i = 1; i < n; i++) { if (y[i] < lo) lo = y[i]; if (y[i] > hi) hi = y[i]; if (x[i] > xm) xm = x[i]; }
+      if (ys) {
+        arck4_runmed(y, &n, &w, ys);
+        for (int i = 0; i < n; i++) if (ys[i] >= lo + 0.5 * (hi - lo)) { md = x[i]; break; }
+        free(ys);
+      }
+      for (int i = 0; i < 7; i++) mm[nm++] = m0[i];       /* the grid of the induction papers, in hours */
+      mm[nm++] = md; mm[nm++] = 0.5 * md; mm[nm++] = 2.0 * md;
+      for (int i = 0; i < 5; i++) mm[nm++] = fr[i] * xm;  /* and one that does not depend on the unit */
+      bt_task t = {r, BT_WALD, 0, M, 0};
+      for (int i = 0; i < nm; i++) for (int j = 0; j < 7; j++) {
+        if (!(mm[i] > 0.0)) continue;
+        double *p = st + BT_DMAX * (size_t)(M + k);
+        p[0] = log(mm[i]); p[1] = log(i < 10 ? l0[j] : mm[i] * (j < 6 ? 0.1 * pow(10.0, j) : 0.5)); k++;
+      }
+      t.ns = k; task[r] = t; M += k;
+    }
+    if (bt_run(task, R, st, M, bt_mk_w, &D, off, *it1, *it2, *K, bv, bq)) {
+      for (int r = 0; r < R; r++) {
+        if (!isfinite(bv[r]) || bv[r] >= BT_BAD) continue;
+        bt_ctx c; bt_mk_w(&D, task + r, &c);
+        c.F = (double *)malloc((size_t)c.n * sizeof(double));
+        if (!c.F) continue;
+        double t[8], rd[3], *o = out + 10 * (size_t)r, mu = exp(bq[BT_DMAX * (size_t)r]);
+        bt_theta(&c, bq + BT_DMAX * (size_t)r, t);
+        o[0] = t[0]; o[1] = t[1]; o[2] = t[2]; o[3] = mu; o[4] = t[4]; o[5] = t[4] / mu; o[6] = t[7];
+        bt_wald_read(o[5], rd);
+        for (int i = 0; i < 3; i++) o[7 + i] = mu * rd[i];
+        free(c.F);
+      }
+    }
+  }
+  free(task); free(st); free(bv); free(bq);
+}
+void arcbt_wald_cdf(const double *x, const int *n, const double *mu, const double *lam, double *out) {
+  for (int i = 0; i < *n; i++) out[i] = isnan(x[i]) ? NAN : bt_waldF(x[i] / *mu, *lam / *mu);
+}
+/* out: 3 per pair (a, b, mode) */
+void arcbt_wald_readings(const double *mu, const double *lam, const int *n, double *out) {
+  for (int i = 0; i < *n; i++) {
+    bt_wald_read(lam[i] / mu[i], out + 3 * (size_t)i);
+    for (int j = 0; j < 3; j++) out[3 * (size_t)i + j] *= mu[i];
+  }
+}
+
+/* ============================ windowed L-moment matching of a curve ============================= */
+/* ratios of the L-moments of the quantile values q at levels u, both restricted to the window the
+ * levels span and centred on it; left Riemann sums */
+static void bt_tauw(const double *u, const double *q, int n, double *t) {
+  t[0] = t[1] = NAN;
+  if (n < 50) return;
+  double sw = 0, sq = 0, c2 = 0, c3 = 0, c4 = 0;
+  for (int i = 0; i < n; i++) {
+    double w = (i < n - 1) ? u[i + 1] - u[i] : u[n - 1] - u[n - 2];
+    sw += w; sq += w * q[i];
+  }
+  double m = sq / sw;
+  for (int i = 0; i < n; i++) {
+    double w = (i < n - 1) ? u[i + 1] - u[i] : u[n - 1] - u[n - 2], d = w * (q[i] - m), v = u[i];
+    c2 += d * (2 * v - 1); c3 += d * (6 * v * v - 6 * v + 1); c4 += d * (20 * v * v * v - 30 * v * v + 12 * v - 1);
+  }
+  if (!isfinite(c2) || fabs(c2) < 1e-12) return;
+  t[0] = c3 / c2; t[1] = c4 / c2;
+}
+typedef struct { double t3, t4; const double *u; int n; const double *bnd; double *q, *v; } bt_lctx;
+static void bt_model_tau(const bt_lctx *c, double k, double h, double *t) {
+  double mu = 0.0, sg = 1.0;
+  int m = 0;
+  arck4_q(c->u, &c->n, &mu, &sg, &k, &h, c->q);
+  for (int i = 0; i < c->n; i++) if (isfinite(c->q[i])) { c->q[m] = c->q[i]; c->v[m] = c->u[i]; m++; }
+  bt_tauw(c->v, c->q, m, t);
+}
+static double bt_lobj(const double *p, const void *vc) {
+  const bt_lctx *c = (const bt_lctx *)vc;
+  double t[2];
+  if (!(p[0] >= c->bnd[0] && p[0] <= c->bnd[1] && p[1] >= c->bnd[2] && p[1] <= c->bnd[3])) return 1e12;
+  bt_model_tau(c, p[0], p[1], t);
+  if (!isfinite(t[0]) || !isfinite(t[1])) return 1e12;
+  return (t[0] - c->t3) * (t[0] - c->t3) + (t[1] - c->t4) * (t[1] - c->t4);
+}
+/* damped Gauss-Newton on the two equations, p in place; its end point can lie on the box */
+static double bt_lgn(const bt_lctx *c, double *p) {
+  double f = bt_lobj(p, c), t0[2], lam = 1e-3;
+  if (f >= 1e12) return f;
+  for (int it = 0; it < 40 && f > 1e-24; it++) {
+    double J[2][2], r[2];
+    bt_model_tau(c, p[0], p[1], t0);
+    r[0] = c->t3 - t0[0]; r[1] = c->t4 - t0[1];
+    for (int j = 0; j < 2; j++) {
+      double h = 1e-6, q[2] = {p[0], p[1]}, t1[2];
+      if (q[j] + h > c->bnd[2 * j + 1]) h = -h;
+      q[j] += h;
+      bt_model_tau(c, q[0], q[1], t1);
+      J[0][j] = (t1[0] - t0[0]) / h; J[1][j] = (t1[1] - t0[1]) / h;
+    }
+    double a = J[0][0] * J[0][0] + J[1][0] * J[1][0], b = J[0][0] * J[0][1] + J[1][0] * J[1][1];
+    double d = J[0][1] * J[0][1] + J[1][1] * J[1][1], g0 = J[0][0] * r[0] + J[1][0] * r[1], g1 = J[0][1] * r[0] + J[1][1] * r[1];
+    int ok = 0;
+    for (int tr = 0; tr < 10 && !ok; tr++) {
+      double A = a * (1 + lam), D = d * (1 + lam), det = A * D - b * b;
+      double q[2] = {p[0] + (D * g0 - b * g1) / det, p[1] + (A * g1 - b * g0) / det};
+      if (!isfinite(q[0]) || !isfinite(q[1])) break;
+      for (int j = 0; j < 2; j++) { q[j] = fmin(fmax(q[j], c->bnd[2 * j]), c->bnd[2 * j + 1]); }
+      double fn = bt_lobj(q, c);
+      if (fn < f) { p[0] = q[0]; p[1] = q[1]; ok = (f - fn > 1e-9 * f) ? 1 : 2; f = fn; lam *= 0.2; }
+      else lam *= 8.0;
+    }
+    if (ok != 1) break;
+  }
+  return f;
+}
+static double bt_med(double *b, int m) { qsort(b, (size_t)m, sizeof(double), bt_cmp); return b[m / 2]; }
+/* running median with the end rule of R's runmed (endrule "median") */
+static void bt_runmed(const double *y, int n, int w, double *o, double *b) {
+  int h = w / 2;
+  for (int i = 0; i < n; i++) {
+    if (i < h || i >= n - h) { o[i] = y[i]; continue; }
+    memcpy(b, y + i - h, (size_t)w * sizeof(double));
+    o[i] = bt_med(b, w);
+  }
+  if (h < 1 || n < w) return;
+  double *t = b + w;                                     /* the ends are smoothed from o itself */
+  memcpy(t, o, (size_t)n * sizeof(double));
+  for (int j = 1; j < h; j++) {
+    memcpy(b, t, (size_t)(2 * j + 1) * sizeof(double)); o[j] = bt_med(b, 2 * j + 1);
+    memcpy(b, t + n - 2 * j - 1, (size_t)(2 * j + 1) * sizeof(double)); o[n - 1 - j] = bt_med(b, 2 * j + 1);
+  }
+  double e[3] = {t[0], o[1], 3 * o[1] - 2 * o[2]}, f[3] = {t[n - 1], o[n - 2], 3 * o[n - 2] - 2 * o[n - 3]};
+  o[0] = bt_med(e, 3); o[n - 1] = bt_med(f, 3);
+}
+/* Each run's curve is put on the probability scale by its linear part lin = (g0, m, g1) only: running
+ * median, (y - g0 - m x)/g1 held in [0, 1] and made nondecreasing. Its third and fourth L-moment
+ * ratios over the observed window [a, b] of levels (inside [0.005, 0.995]) are matched by those of
+ * the kappa quantile function over the same window. ng, nm: levels for the data and the model. out: 10
+ * per run (k, h, objective, t3, t4, a, b, number of exact matches, their smallest and largest h); NaN where fewer than 100 points are inside. */
+void arcbt_lmomw(const double *X, const double *Y, const int *off, const int *nr, const double *lin,
+                 const double *bounds, const int *window, const int *ng, const int *nm, double *out) {
+  int R = *nr;
+  static const double k0[4] = {-0.8, -0.4, 0, 0.3}, h0[6] = {-1.5, -0.4, -0.05, 0.05, 0.4, 1};
+  for (int i = 0; i < 10 * R; i++) out[i] = NAN;
+  double *um = (double *)malloc((size_t)R * *nm * sizeof(double));
+  double *fv = (double *)malloc((size_t)R * 24 * sizeof(double)), *fp = (double *)malloc((size_t)R * 48 * sizeof(double));
+  double *gv = (double *)malloc((size_t)R * 6 * sizeof(double)), *gp = (double *)malloc((size_t)R * 12 * sizeof(double));
+  if (um && fv && fp && gv && gp) {
+    for (int i = 0; i < 24 * R; i++) fv[i] = BT_BAD;
+#ifdef _OPENMP
+#pragma omp parallel num_threads(arc_threads())
+#endif
+    {
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+      for (int r = 0; r < R; r++) {
+        int n = off[r + 1] - off[r], m = 0, w = *window, G = *ng;
+        const double *x = X + off[r], *L = lin + 3 * (size_t)r;
+        double *o = out + 10 * (size_t)r;
+        double *ys = (double *)malloc((size_t)(4 * n + w + 2 * G) * sizeof(double));
+        if (!ys) continue;
+        double *F = ys + n, *b = ys + 2 * n, *u = ys + 4 * n + w, *q = u + G, top = 0.0;
+        bt_runmed(Y + off[r], n, w, ys, b);
+        double *xx = b;                                  /* reused: x of the kept levels */
+        for (int i = 0; i < n; i++) {
+          double f = (ys[i] - L[0] - L[1] * x[i]) / L[2];
+          f = f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f);
+          if (f > top) top = f;
+          if (!(top > 1e-6 && top < 1.0 - 1e-6)) continue;
+          F[m] = top; xx[m] = x[i]; m++;
+        }
+        if (m >= 100 && F[m - 1] > F[0]) {               /* interpolation as approx(ties = "ordered") */
+          double a = fmax(0.005, F[0]), e = fmin(0.995, F[m - 1]);
+          int j = 0, g = 0;
+          for (int i = 0; i < G; i++) {
+            double v = (i == G - 1) ? e : a + (e - a) * i / (G - 1.0);
+            if (v < F[0] || v > F[m - 1]) continue;
+            while (j < m - 2 && F[j + 1] <= v) j++;
+            u[g] = v;
+            q[g] = (v >= F[j + 1]) ? xx[j + 1] : xx[j] + (xx[j + 1] - xx[j]) * (v - F[j]) / (F[j + 1] - F[j]);
+            g++;
+          }
+          bt_tauw(u, q, g, o + 3);
+          o[5] = a; o[6] = e;
+          for (int i = 0; i < *nm; i++) um[(size_t)r * *nm + i] = a + (e - a) * i / (*nm - 1.0);
+        }
+        free(ys);
+      }
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+      for (int t = 0; t < 24 * R; t++) {
+        int r = t / 24, s = t % 24;
+        const double *o = out + 10 * (size_t)r;
+        if (!isfinite(o[3]) || !isfinite(o[4])) continue;
+        double *q = (double *)malloc((size_t)*nm * 2 * sizeof(double));
+        if (!q) continue;
+        bt_lctx c = {o[3], o[4], um + (size_t)r * *nm, *nm, bounds, q, q + *nm};
+        double st[2] = {k0[s / 6], h0[s % 6]};
+        fv[t] = bt_lgn(&c, st);
+        memcpy(fp + 2 * (size_t)t, st, sizeof st);
+        free(q);
+      }
+      /* the six lowest of each run are carried to convergence */
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+      for (int t = 0; t < 6 * R; t++) {
+        int r = t / 6, rank = t % 6, b = -1;
+        const double *o = out + 10 * (size_t)r, *v = fv + 24 * (size_t)r;
+        for (int s = 0; s < 24 && b < 0; s++) {
+          int c = 0;
+          for (int l = 0; l < 24; l++) if (v[l] < v[s] || (v[l] == v[s] && l < s)) c++;
+          if (c == rank) b = s;
+        }
+        gv[t] = BT_BAD;
+        if (b < 0 || !(v[b] < 1e11)) continue;
+        double *q = (double *)malloc((size_t)*nm * 2 * sizeof(double));
+        if (!q) continue;
+        bt_lctx c = {o[3], o[4], um + (size_t)r * *nm, *nm, bounds, q, q + *nm};
+        double p1[2], f1, p2[2], f2;
+        arck4_nmd(bt_lobj, &c, 2, fp + 2 * (size_t)(24 * r + b), 300, p1, &f1);
+        arck4_nmd(bt_lobj, &c, 2, p1, 300, p2, &f2);
+        gv[t] = f2 < f1 ? f2 : f1;
+        memcpy(gp + 2 * (size_t)t, f2 < f1 ? p2 : p1, sizeof p1);
+        free(q);
+      }
+    }
+    for (int r = 0; r < R; r++) {
+      /* the 24 Gauss-Newton points and the six polished ones; two ratios do not always determine the
+       * shape, so every distinct exact match is counted and the one with the smallest |h| returned */
+      double V[30], P[60], sol[60], *o = out + 10 * (size_t)r;
+      int b = -1, ns = 0;
+      for (int s = 0; s < 30; s++) {
+        V[s] = s < 24 ? fv[24 * r + s] : gv[6 * r + s - 24];
+        for (int j = 0; j < 2; j++) P[2 * s + j] = s < 24 ? fp[2 * (24 * r + s) + j] : gp[2 * (6 * r + s - 24) + j];
+        if (V[s] < 1e11 && (b < 0 || V[s] < V[b])) b = s;
+      }
+      if (b < 0) continue;
+      for (int s = 0; s < 30; s++) {
+        if (!(V[s] < 1e-14)) continue;
+        int dup = 0;
+        for (int e = 0; e < ns && !dup; e++) dup = fabs(P[2 * s] - sol[2 * e]) < 1e-3 && fabs(P[2 * s + 1] - sol[2 * e + 1]) < 1e-3;
+        if (!dup) { sol[2 * ns] = P[2 * s]; sol[2 * ns + 1] = P[2 * s + 1]; ns++; }
+        if (s != b && V[b] < 1e-14 && fabs(P[2 * s + 1]) < fabs(P[2 * b + 1]) - 1e-3) b = s;
+      }
+      o[0] = P[2 * b]; o[1] = P[2 * b + 1]; o[2] = V[b]; o[7] = ns; o[8] = o[9] = o[1];
+      for (int e = 0; e < ns; e++) { o[8] = fmin(o[8], sol[2 * e + 1]); o[9] = fmax(o[9], sol[2 * e + 1]); }
+    }
+  }
+  free(um); free(fv); free(fp); free(gv); free(gp);
+}
+
 /* ======================================== bootstraps ========================================== */
 static int bt_bootlen(const double *r, int n, int block) {
   int b = block > 0 ? block : arcef_blocklen(r, n);
@@ -1025,7 +1366,7 @@ void arcbt_k4eq_boot(const double *X, const double *Y, const int *off, const int
   double *m0 = (double *)malloc((size_t)N * sizeof(double));
   double *r0 = (double *)malloc((size_t)N * sizeof(double));
   if (m0 && r0) {
-    bt_kdat D = {X, Y, off, *npiece, TH, TK, toff, bounds, 0, 0, 0};
+    bt_kdat D = {0, X, Y, off, *npiece, TH, TK, toff, bounds, 0, 0, 0};
     bt_kdat_init(&D);
     for (int r = 0; r < R; r++) {
       const double *f = fit + 7 * (size_t)r;

@@ -1,3 +1,14 @@
+# arcstat (development version 0.3.1.9004)
+
+* New `wald_fit()`, `wald_cdf()` and `wald_readings()`: inverse Gaussian curves with drift, many runs
+  in one call, and their two readings without a grid (exact for every phi, the Levy limit included).
+
+* `k4_fit()` and `k4eq_fit()` have `drift`; `FALSE` holds the slope at zero.
+
+* New `k4_lmom_window()`: L-moment matching of kappa shapes over the observed window, both signs of h,
+  many runs in one call. Two windowed ratios can be matched exactly by more than one shape; the number
+  of matches is returned.
+
 # arcstat (development version 0.3.1.9003)
 
 * New `k4_fit()`: free kappa fits with drift, many runs in one call, by Levenberg-Marquardt from a

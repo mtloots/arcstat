@@ -34,6 +34,7 @@ test_that("results are bit-identical on 1, 2 and 8 threads", {
     e <- k4eq_fit(X, Y)
     list(e, k4eq_fit(X, Y, cbind(seq(-1, 0.4, 0.2), k4_locus_k(seq(-1, 0.4, 0.2)))),
          bc_host_fit(X, Y, curve, keep = 3L), k4_fit(X, Y, gate = TRUE, gev = TRUE),
+         wald_fit(X, Y), k4_fit(X, Y, drift = FALSE), k4_lmom_window(X[1], Y[1], c(1, 0.2, 300), ngrid = 400L, nmodel = 400L),
          k4_boot(X, Y, fit, box, gev = c(FALSE, TRUE), B = 6L), k4eq_boot(X, Y, e$fit, B = 6L),
          k4_mv_boot(R2$x, R2$y, B = 2L, bounds = box, maxit = 300L),
          k4_fit_varpro(R1$x, R1$y, rbind(c(9, log(2), 0, 0.1), c(8, 0, 0, -1)), bounds = box),
@@ -158,4 +159,53 @@ test_that("the whole companion curve, and drift in every pipeline", {
   n <- k4_mv_boot(R1$x, R1$y, B = 0L, bounds = box)$a_pt
   expect_identical(a[c("LS", "GEV-LS", "grid-odd")], n[c("LS", "GEV-LS", "grid-odd")])
   expect_lt(abs(a[["med9-LS"]] - a[["LS"]]), abs(n[["med9-LS"]] - n[["LS"]]))
+})
+
+test_that("drift-free fits are the two-column least squares at their shape, never below the drifted fit", {
+  f <- k4_fit(X, Y); n <- k4_fit(X, Y, drift = FALSE); q <- k4eq_fit(X, Y, drift = FALSE)$fit
+  expect_true(all(n[, "m"] == 0) && all(q[, "m"] == 0) && all(n[, "rss"] >= f[, "rss"]) && all(q[, "rss"] >= n[, "rss"] * (1 - 1e-9)))
+  for (r in 1:2) for (p in list(n[r, ], q[r, ])) {
+    F <- k4_cdf(X[[r]], p[["mu"]], p[["sigma"]], p[["k"]], p[["h"]])
+    expect_equal(p[["rss"]], sum(stats::lm.fit(cbind(1, F), Y[[r]])$residuals^2), tolerance = 1e-11)
+  }
+})
+
+test_that("Wald: distribution function, readings against the definition, fit", {
+  pw <- function(x, mu, l) { s <- sqrt(l / x); pnorm(s * (x / mu - 1)) + exp(2 * l / mu + pnorm(-s * (x / mu + 1), log.p = TRUE)) }
+  x <- c(0.01, 0.5, 3, 9, 40)
+  expect_equal(wald_cdf(x, 9, 4), pw(x, 9, 4), tolerance = 1e-12)
+  expect_identical(wald_cdf(c(-1, 0), 9, 4), c(0, 0))
+  lf <- function(x, mu, l) 0.5 * log(l) - 1.5 * log(x) - l * (x - mu)^2 / (2 * mu^2 * x)
+  for (phi in c(1e-7, 0.01, 0.159, 1, 30, 1e5)) {
+    r <- wald_readings(1, phi)[1, ]; m <- r[["mode"]]; b <- r[["b"]]
+    d1 <- function(x) -1.5 / x - phi / 2 + phi / (2 * x^2)
+    d2 <- function(x) 1.5 / x^2 - phi / x^3
+    expect_lt(abs(d1(m)) * m, 1e-9 * (1 + phi))
+    expect_lt(abs(d1(b)^2 + d2(b)) / (abs(d1(b)^2) + abs(d2(b))), 1e-9)
+    expect_true(b < m && r[["a"]] < m && r[["a"]] > 0)
+  }
+  ## the Levy limit: the readings no longer depend on mu
+  expect_equal(wald_readings(1e8, 15)[1, ], wald_readings(1e6, 15)[1, ], tolerance = 1e-4)
+  y <- 1 + 0.2 * R1$x + 300 * wald_cdf(R1$x, 9, 150)
+  f <- wald_fit(R1$x, y)[1, ]
+  expect_equal(unname(f[c("mu", "lambda", "m")]), c(9, 150, 0.2), tolerance = 1e-5)
+  g <- wald_fit(X, Y)
+  for (r in 1:2) expect_equal(g[[r, "rss"]], ob(X[[r]], Y[[r]], pw(pmax(X[[r]], 1e-12), g[r, "mu"], g[r, "lambda"])), tolerance = 1e-9)
+})
+
+test_that("windowed L-moment matching is the R construction and recovers a shape of either sign", {
+  x <- seq(0, 20, length.out = 400)
+  for (h in c(0.3, -0.5)) {
+    y <- 1 + 300 * k4_cdf(x, 9, 2, -0.2, h)
+    L <- k4_lmom_window(x, y, c(1, 0, 300), bounds = c(-0.98, 0.95, -8, 4))[1, ]
+    F <- cummax(pmin(pmax((as.numeric(stats::runmed(y, 21)) - 1) / 300, 0), 1)); kp <- F > 1e-6 & F < 1 - 1e-6
+    a <- max(0.005, min(F[kp])); b <- min(0.995, max(F[kp])); u <- seq(a, b, length.out = 3000)
+    tau <- function(u, Q) { w <- c(diff(u), utils::tail(diff(u), 1)); Q <- Q - sum(w * Q) / sum(w)
+      c2 <- sum(w * Q * (2 * u - 1)); c(sum(w * Q * (6 * u^2 - 6 * u + 1)), sum(w * Q * (20 * u^3 - 30 * u^2 + 12 * u - 1))) / c2 }
+    e <- tau(u, stats::approx(F[kp], x[kp], xout = u, ties = "ordered")$y)
+    expect_equal(unname(L[c("t3", "t4")]), e, tolerance = 1e-9)
+    um <- seq(a, b, length.out = 4000)
+    expect_lt(sum((tau(um, k4_q(um, 0, 1, L[["k"]], L[["h"]])) - e)^2), 1e-12)
+    expect_true(L[["nsol"]] >= 1 && L[["h_min"]] <= h + 0.1 && L[["h_max"]] >= h - 0.1)   # not always unique
+  }
 })

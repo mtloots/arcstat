@@ -1543,6 +1543,7 @@ k4_locus_k <- function(h)
 #'   not extrapolated. An interpolated table puts a kink in the objective at each of its nodes; all
 #'   nodes are scanned, so the best one is found, but the fit is then a property of the table.
 #' @param bounds the box \code{(k_lo, k_hi, h_lo, h_hi)} the shape must lie in.
+#' @param drift \code{FALSE} holds the slope \eqn{m} at zero.
 #' @param it1,it2 Levenberg--Marquardt steps per start, and for the best starts.
 #' @param keep how many distinct best starts of each run are carried to convergence.
 #' @return a list: \code{fit}, a matrix with one row per run and columns \code{g0, m, g1, mu, sigma,
@@ -1557,13 +1558,13 @@ k4_locus_k <- function(h)
 #' f <- k4eq_fit(x, y)
 #' f$fit[1, c("k", "h", "rss", "a", "b")]
 #' @export
-k4eq_fit <- function(x, y, locus = NULL, bounds = c(-0.98, 0.95, -60, 4),
+k4eq_fit <- function(x, y, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), drift = TRUE,
                      it1 = 12L, it2 = 150L, keep = 6L) {
   d <- .arc_runs(x, y); L <- .arc_locus(locus); np <- if (L$np > 0L) L$np else 2L
   stopifnot(length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4], keep >= 1L)
   .arc_sync_threads()
   r <- .C(C_arcbt_k4eq, d$X, d$Y, d$off, d$R, L$np, L$h, L$k, L$off, as.double(bounds),
-          as.integer(it1), as.integer(it2), as.integer(keep),
+          as.integer(drift), as.integer(it1), as.integer(it2), as.integer(keep),
           out = double(11 * d$R), p = double(11 * np * d$R), NAOK = TRUE)
   nm <- c("g0", "m", "g1", "mu", "sigma", "k", "h", "rss", "a", "b", "piece")
   list(fit = matrix(r$out, d$R, 11, byrow = TRUE, dimnames = list(d$names, nm)),
@@ -1707,7 +1708,7 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
 #' k4_fit(x, y)[1, c("k", "h", "rss", "a", "b")]
 #' @export
 k4_fit <- function(x, y, bounds = c(-0.98, 0.95, -60, 4), floors = c(-60, -8, -3, -1.2, -0.5, 0),
-                   gate = FALSE, gev = FALSE, hfix = NA_real_, it1 = 12L, it2 = 200L, keep = 8L) {
+                   gate = FALSE, gev = FALSE, hfix = NA_real_, drift = TRUE, it1 = 12L, it2 = 200L, keep = 8L) {
   d <- .arc_runs(x, y)
   stopifnot(length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4], length(hfix) == 1L)
   gate <- if (identical(gate, "best")) 2L else as.integer(isTRUE(gate))
@@ -1715,8 +1716,87 @@ k4_fit <- function(x, y, bounds = c(-0.98, 0.95, -60, 4), floors = c(-60, -8, -3
   stopifnot(length(fl) >= 1L, all(is.finite(fl)), all(fl < bounds[4]))
   .arc_sync_threads()
   r <- .C(C_arcbt_k4fit, d$X, d$Y, d$off, d$R, as.double(bounds), as.double(fl), length(fl),
-          as.integer(gate), as.integer(gev), as.double(hfix), as.integer(it1), as.integer(it2),
-          as.integer(keep), out = double(14 * d$R), NAOK = TRUE)$out
+          as.integer(gate), as.integer(gev), as.double(hfix), as.integer(drift), as.integer(it1),
+          as.integer(it2), as.integer(keep), out = double(14 * d$R), NAOK = TRUE)$out
   matrix(r, d$R, 14, byrow = TRUE, dimnames = list(d$names, c("g0", "m", "g1", "mu", "sigma", "k",
          "h", "rss", "a", "b", "gev", "dAIC", "h_floor", "physical")))
+}
+
+#' Wald (inverse Gaussian) curve fits, many runs in one call
+#'
+#' Fits \eqn{y = g_0 + m x + g_1 F(x;\mu,\lambda)} with \eqn{F} the inverse Gaussian distribution
+#' function, by the method of \code{\link{k4eq_fit}}, and reads the fitted curve exactly. Time is
+#' measured from zero, so \code{x} must be in the units and from the origin the curve is meant in.
+#' @inheritParams k4eq_fit
+#' @return \code{wald_fit}: a matrix with one row per run and columns \code{g0, m, g1, mu, lambda, phi,
+#'   rss, a, b, mode}; \code{phi} is \eqn{\lambda/\mu}; \code{a} and \code{b} are the tangent and the
+#'   third-derivative reading of the fitted shape, whatever the sign of \code{g1} and wherever they
+#'   lie, and can be of any size when the fit runs to the end of its range (\eqn{\mu} up to
+#'   \eqn{10^8}). \code{wald_cdf}: a vector. \code{wald_readings}: a matrix with columns \code{a},
+#'   \code{b}, \code{mode}; both readings exist for every \eqn{\phi>0}.
+#' @examples
+#' x <- seq(0, 20, length.out = 120)
+#' y <- 1 + 0.2 * x + 300 * wald_cdf(x, 9, 150) + sin(4321 * seq_along(x))
+#' wald_fit(x, y)[1, c("mu", "lambda", "a", "b")]
+#' wald_readings(9, 150)
+#' @export
+wald_fit <- function(x, y, drift = TRUE, it1 = 25L, it2 = 200L, keep = 6L) {
+  d <- .arc_runs(x, y); .arc_sync_threads()
+  r <- .C(C_arcbt_wald, d$X, d$Y, d$off, d$R, as.integer(drift), as.integer(it1), as.integer(it2),
+          as.integer(keep), out = double(10 * d$R), NAOK = TRUE)$out
+  matrix(r, d$R, 10, byrow = TRUE, dimnames = list(d$names, c("g0", "m", "g1", "mu", "lambda", "phi",
+         "rss", "a", "b", "mode")))
+}
+#' @rdname wald_fit
+#' @param mu,lambda positive parameters, one pair for \code{wald_cdf}, any number for
+#'   \code{wald_readings}.
+#' @export
+wald_cdf <- function(x, mu, lambda) {
+  stopifnot(length(mu) == 1L, length(lambda) == 1L, mu > 0, lambda > 0)
+  .C(C_arcbt_wald_cdf, as.double(x), as.integer(length(x)), as.double(mu), as.double(lambda),
+     out = double(length(x)), NAOK = TRUE)$out
+}
+#' @rdname wald_fit
+#' @export
+wald_readings <- function(mu, lambda) {
+  n <- max(length(mu), length(lambda)); mu <- rep_len(mu, n); lambda <- rep_len(lambda, n)
+  r <- .C(C_arcbt_wald_readings, as.double(mu), as.double(lambda), as.integer(n),
+          out = double(3 * n), NAOK = TRUE)$out
+  matrix(r, n, 3, byrow = TRUE, dimnames = list(NULL, c("a", "b", "mode")))
+}
+
+#' Windowed L-moment matching of kappa shapes, many runs in one call
+#'
+#' Puts each run on the probability scale by the linear part of a fit only, takes the third and fourth
+#' L-moment ratios of its quantile function over the observed window of levels, and finds the kappa
+#' shape whose quantile function has the same ratios over the same window. The fitted shape is not
+#' used. \eqn{h} is searched on both sides of zero.
+#' @inheritParams k4eq_fit
+#' @param lin a matrix with one row per run whose columns \code{g0, m, g1} (or the first three) are the
+#'   linear part.
+#' @param window running-median window (odd; the ends as in \code{\link[stats]{runmed}}).
+#' @param ngrid,nmodel number of equally spaced levels for the data and for the model.
+#' @return a matrix with one row per run and columns \code{k, h, obj, t3, t4, lo, hi, nsol,
+#'   h_min, h_max}: the shape, the squared distance left, the two ratios of the data, the window, the
+#'   number of distinct exact matches found and their smallest and largest \code{h}. Two ratios over a
+#'   window do not always determine the shape: where \code{nsol} exceeds one the shape returned is only
+#'   the one with the smallest \eqn{|h|}. \code{NaN} where fewer than 100
+#'   points lie inside the window.
+#' @examples
+#' x <- seq(0, 20, length.out = 300)
+#' y <- 1 + 300 * k4_cdf(x, 9, 2, -0.2, 0.3)
+#' k4_lmom_window(x, y, c(1, 0, 300))
+#' @export
+k4_lmom_window <- function(x, y, lin, bounds = c(-0.98, 0.95, -8, 4), window = 21L, ngrid = 3000L,
+                           nmodel = 4000L) {
+  d <- .arc_runs(x, y)
+  lin <- if (is.matrix(lin)) lin else matrix(lin, 1L)
+  if (!is.null(colnames(lin)) && all(c("g0", "m", "g1") %in% colnames(lin))) lin <- lin[, c("g0", "m", "g1"), drop = FALSE]
+  stopifnot(nrow(lin) == d$R, ncol(lin) >= 3L, length(bounds) == 4L, window %% 2 == 1, window >= 1,
+            all(diff(d$off) > window), ngrid >= 50L, nmodel >= 50L)
+  .arc_sync_threads()
+  r <- .C(C_arcbt_lmomw, d$X, d$Y, d$off, d$R, as.double(t(lin[, 1:3, drop = FALSE])), as.double(bounds),
+          as.integer(window), as.integer(ngrid), as.integer(nmodel), out = double(10 * d$R), NAOK = TRUE)$out
+  matrix(r, d$R, 10, byrow = TRUE, dimnames = list(d$names, c("k", "h", "obj", "t3", "t4", "lo", "hi",
+         "nsol", "h_min", "h_max")))
 }

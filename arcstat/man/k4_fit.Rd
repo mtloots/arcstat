@@ -12,6 +12,7 @@ k4_fit(
   gate = FALSE,
   gev = FALSE,
   hfix = NA_real_,
+  drift = TRUE,
   it1 = 12L,
   it2 = 200L,
   keep = 8L
@@ -35,6 +36,8 @@ it is, the more often an unphysical minimum is the lowest at every floor.}
 \eqn{n\log(rss_0/rss)-2<0} (with \code{gate}, only if it is physical).}
 
 \item{hfix}{hold \eqn{h} there; \code{NA} searches it.}
+
+\item{drift}{\code{FALSE} holds the slope \eqn{m} at zero.}
 
 \item{it1, it2}{Levenberg--Marquardt steps per start, and for the best starts.}
 

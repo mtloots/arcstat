@@ -9,6 +9,7 @@ k4eq_fit(
   y,
   locus = NULL,
   bounds = c(-0.98, 0.95, -60, 4),
+  drift = TRUE,
   it1 = 12L,
   it2 = 150L,
   keep = 6L
@@ -23,6 +24,8 @@ not extrapolated. An interpolated table puts a kink in the objective at each of 
 nodes are scanned, so the best one is found, but the fit is then a property of the table.}
 
 \item{bounds}{the box \code{(k_lo, k_hi, h_lo, h_hi)} the shape must lie in.}
+
+\item{drift}{\code{FALSE} holds the slope \eqn{m} at zero.}
 
 \item{it1, it2}{Levenberg--Marquardt steps per start, and for the best starts.}
 

@@ -661,8 +661,8 @@ def k4_locus_k(h):
     _lib.arcbt_locus_k(_vec(h), _i(len(h)), out)
     return list(out)
 
-_lib.arcbt_k4eq.argtypes = [_dp, _dp, _ip, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _dp, _dp]
-def k4eq_fit(x, y, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), it1=12, it2=150, keep=6):
+_lib.arcbt_k4eq.argtypes = [_dp, _dp, _ip, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _ip, _dp, _dp]
+def k4eq_fit(x, y, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), drift=True, it1=12, it2=150, keep=6):
     """Equivalence-constrained kappa fits with drift, many runs in one call; see the R function of the
     same name. Returns (fit, pieces): per run (g0, m, g1, mu, sigma, k, h, rss, a, b, piece), and the
     same for the best fit on every piece of the locus. Nothing is refused on physical grounds."""
@@ -672,7 +672,7 @@ def k4eq_fit(x, y, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), it1=12, it2=150
     out = (_ct.c_double * (11 * R))()
     pv = (_ct.c_double * (11 * npo * R))()
     _lib.arcbt_k4eq(_vec(X), _vec(Y), _iv(off), _i(R), _i(n_p), _vec(h), _vec(k), _iv(toff),
-                    _vec(bounds), _i(it1), _i(it2), _i(keep), out, pv)
+                    _vec(bounds), _i(int(bool(drift))), _i(it1), _i(it2), _i(keep), out, pv)
     return _rows(list(out), 11), [_rows(r, 11) for r in _rows(list(pv), 11 * npo)]
 
 _lib.arcbt_host.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _ip, _dp, _dp]
@@ -690,9 +690,9 @@ def bc_host_fit(x, y, curve=None, it1=15, it2=200, keep=6, eps=1e-6, dense=False
                     _i(len(cal)), _d1(eps), _i(int(bool(dense))), _i(it1), _i(it2), _i(keep), f, c)
     return _rows(list(f), 10), _rows(list(c), 10)
 
-_lib.arcbt_k4fit.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _dp, _ip, _ip, _ip, _dp]
+_lib.arcbt_k4fit.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _dp, _ip, _ip, _ip, _ip, _dp]
 def k4_fit(x, y, bounds=(-0.98, 0.95, -60.0, 4.0), floors=(-60, -8, -3, -1.2, -0.5, 0), gate=False,
-           gev=False, hfix=None, it1=12, it2=200, keep=8):
+           gev=False, hfix=None, drift=True, it1=12, it2=200, keep=8):
     """Free kappa fits with drift from the built-in start grid, many runs in one call; see the R
     function of the same name. gate: False, True or "best". Returns per run (g0, m, g1, mu, sigma, k,
     h, rss, a, b, gev, dAIC, h_floor, physical)."""
@@ -701,9 +701,47 @@ def k4_fit(x, y, bounds=(-0.98, 0.95, -60.0, 4.0), floors=(-60, -8, -3, -1.2, -0
     fl = list(floors) if g == 1 else [bounds[2]]
     out = (_ct.c_double * (14 * R))()
     _lib.arcbt_k4fit(_vec(X), _vec(Y), _iv(off), _i(R), _vec(bounds), _vec(fl), _i(len(fl)), _i(g),
-                     _i(int(bool(gev))), _d1(float("nan") if hfix is None else float(hfix)), _i(it1),
-                     _i(it2), _i(keep), out)
+                     _i(int(bool(gev))), _d1(float("nan") if hfix is None else float(hfix)),
+                     _i(int(bool(drift))), _i(it1), _i(it2), _i(keep), out)
     return _rows(list(out), 14)
+
+_lib.arcbt_wald.argtypes = [_dp, _dp, _ip, _ip, _ip, _ip, _ip, _ip, _dp]
+def wald_fit(x, y, drift=True, it1=25, it2=200, keep=6):
+    """Wald (inverse Gaussian) curve fits with drift, many runs in one call; see the R function of the
+    same name. Returns per run (g0, m, g1, mu, lambda, phi, rss, a, b, mode)."""
+    X, Y, off, R = _runs(x, y)
+    out = (_ct.c_double * (10 * R))()
+    _lib.arcbt_wald(_vec(X), _vec(Y), _iv(off), _i(R), _i(int(bool(drift))), _i(it1), _i(it2), _i(keep), out)
+    return _rows(list(out), 10)
+
+_lib.arcbt_wald_cdf.argtypes = [_dp, _ip, _dp, _dp, _dp]
+def wald_cdf(x, mu, lam):
+    """Wald (inverse Gaussian) distribution function."""
+    out = (_ct.c_double * len(x))()
+    _lib.arcbt_wald_cdf(_vec(x), _i(len(x)), _d1(mu), _d1(lam), out)
+    return list(out)
+
+_lib.arcbt_wald_readings.argtypes = [_dp, _dp, _ip, _dp]
+def wald_readings(mu, lam):
+    """(a, b, mode) of each pair (mu, lambda): tangent, third-derivative reading, steepest point."""
+    if len(mu) != len(lam):
+        raise ValueError("mu and lam must have the same length")
+    out = (_ct.c_double * (3 * len(mu)))()
+    _lib.arcbt_wald_readings(_vec(mu), _vec(lam), _i(len(mu)), out)
+    return _rows(list(out), 3)
+
+_lib.arcbt_lmomw.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _dp]
+def k4_lmom_window(x, y, lin, bounds=(-0.98, 0.95, -8.0, 4.0), window=21, ngrid=3000, nmodel=4000):
+    """Windowed L-moment matching of kappa shapes, many runs in one call; see the R function of the same
+    name. lin: rows (g0, m, g1). Returns per run (k, h, obj, t3, t4, lo, hi, nsol, h_min, h_max)."""
+    X, Y, off, R = _runs(x, y)
+    L = [float(v) for row in lin for v in list(row)[:3]]
+    if len(L) != 3 * R or window % 2 != 1 or any(b - a <= window for a, b in zip(off, off[1:])):
+        raise ValueError("lin needs three columns and a row per run; window must be odd and below n")
+    out = (_ct.c_double * (10 * R))()
+    _lib.arcbt_lmomw(_vec(X), _vec(Y), _iv(off), _i(R), _vec(L), _vec(bounds), _i(window), _i(ngrid),
+                     _i(nmodel), out)
+    return _rows(list(out), 10)
 
 def _seeds(seed, R):
     s = [int(seed) + r for r in range(R)] if not hasattr(seed, "__len__") else [int(v) for v in seed]
