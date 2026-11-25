@@ -4,17 +4,31 @@
 \alias{bc_host_fit}
 \title{Beta-companion fits with drift, free and equivalence-constrained, many runs in one call}
 \usage{
-bc_host_fit(x, y, curve, it1 = 15L, it2 = 200L, keep = 6L)
+bc_host_fit(
+  x,
+  y,
+  curve = NULL,
+  it1 = 15L,
+  it2 = 200L,
+  keep = 6L,
+  eps = 1e-06,
+  dense = FALSE
+)
 }
 \arguments{
 \item{x, y}{one run as two vectors, or many runs as two lists of vectors.}
 
-\item{curve}{a two-column matrix \code{(alpha, beta)} of the equivalence curve, increasing in
-alpha, interpolated linearly; alpha is held inside it. See \code{\link{eq_bstar}}.}
+\item{curve}{\code{NULL} for the whole equivalence curve with beta of at least \code{-1 + eps},
+computed inside (\code{\link{eq_bstar}}); or a two-column matrix \code{(alpha, beta)} of it,
+increasing in alpha, interpolated linearly, in which alpha is held.}
 
 \item{it1, it2}{Levenberg--Marquardt steps per start, and for the best starts.}
 
 \item{keep}{how many distinct best starts of each run are carried to convergence.}
+
+\item{eps}{how close to -1 the exponents may come.}
+
+\item{dense}{use 16 (free) and 8 (constrained) times as many starts.}
 }
 \value{
 a list of two matrices, \code{free} and \code{con}, with one row per run and columns
@@ -23,7 +37,7 @@ a list of two matrices, \code{free} and \code{con}, with one row per run and col
 \description{
 Fits \eqn{y = g_0 + m x + g_1 F((x-s)/w;\alpha,\beta)}, \eqn{F} the inverse of the regularised
 incomplete beta function with parameters \eqn{\alpha+1,\beta+1}, once with \eqn{\alpha,\beta} free
-in \eqn{[-1+10^{-6}, 20]} and once with \eqn{\beta} on the equivalence curve. \eqn{F} is exactly 0
+in \eqn{[-1+}\code{eps}\eqn{, 20]} and once with \eqn{\beta} on the equivalence curve. \eqn{F} is exactly 0
 and 1 off the support. The method is that of \code{\link{k4eq_fit}}. The constrained optimum is a
 point of the free family and is also a start of the free fit, so the constrained sum of squares is
 never below the free one.

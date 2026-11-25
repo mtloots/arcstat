@@ -460,7 +460,7 @@ void arck4_fit_nls(const double *x, const double *y, const int *n,
 }
 typedef struct { const double *A; const double *breaks; int J; int nodes;
                  const double *x01, *w01; double x0, y0, lambda, p;
-                 const double *bnd; } na_ctx;   /* bnd: h searched directly in that box; NULL: log h */
+                 const double *bnd; int drift; } na_ctx;   /* bnd: h searched directly in that box; NULL: log h */
 static double na_obj(const double *p, const void *vc) {
   const na_ctx *c = (const na_ctx *)vc;
   double th[6]; untrans(p, th);
@@ -468,20 +468,21 @@ static double na_obj(const double *p, const void *vc) {
     th[5] = p[5];
     if (!(th[4] >= c->bnd[0] && th[4] <= c->bnd[1] && th[5] >= c->bnd[2] && th[5] <= c->bnd[3])) return 1e12;
   } else if (th[4] < -0.9 || th[4] > 0.9 || th[5] < 0.02 || th[5] > 3.0) return 1e12;
-  double s = 0.0;
+  double s = 0.0, m = c->drift ? p[6] : 0.0;
   for (int j = 0; j < c->J; j++) {
-    double S = band_model_one(th, c->breaks[j], c->breaks[j+1], c->nodes, c->x01, c->w01, c->p);
+    double S = band_model_one_d(th, m, c->breaks[j], c->breaks[j+1], c->nodes, c->x01, c->w01, c->p);
     s += (S - c->A[j]) * (S - c->A[j]);
   }
-  double anc = c->y0 - (th[0] + th[1] * k4_F(c->x0, th[2], th[3], th[4], th[5]));
+  double anc = c->y0 - (th[0] + m * c->x0 + th[1] * k4_F(c->x0, th[2], th[3], th[4], th[5]));
   s += c->lambda * anc * anc;
   return isfinite(s) ? s : 1e12;
 }
 /* bnd NULL: the published fit, log h in the last coordinate. Otherwise bnd = (k_lo, k_hi, h_lo, h_hi)
- * and start carries h itself, so that negative h can be reached. */
+ * and start carries h itself, so that negative h can be reached; with drift the curve carries a linear
+ * term whose slope is start[6] and out[7]. */
 void arck4_fit_nalr_box(const double *x, const double *y, const int *n, const int *J,
                         const double *lambda, const int *w, const double *p, const double *bnd,
-                        const double *start, double *out) {
+                        const int *drift, const double *start, double *out) {
   int N = *n, nJ = *J, nodes = 60;
   double *ys = (double *)malloc((size_t)N * sizeof(double));
   arck4_runmed(y, n, w, ys);
@@ -497,19 +498,24 @@ void arck4_fit_nalr_box(const double *x, const double *y, const int *n, const in
   double y0 = med_of(buf, m), x0 = x[m - 1];
   double x01[60], w01[60];
   gl01(nodes, x01, w01);
-  na_ctx c = { A, br, nJ, nodes, x01, w01, x0, y0, *lambda, *p, bnd };
-  double p1[6], f1, p2[6], f2;
-  nelder_mead(na_obj, &c, 6, start, 2000, p1, &f1);
-  nelder_mead(na_obj, &c, 6, p1, 2000, p2, &f2);
+  na_ctx c = { A, br, nJ, nodes, x01, w01, x0, y0, *lambda, *p, bnd, *drift };
+  int d = *drift ? 7 : 6;
+  double p1[7], f1, p2[7], f2;
+  nelder_mead(na_obj, &c, d, start, 2000, p1, &f1);
+  nelder_mead(na_obj, &c, d, p1, 2000, p2, &f2);
   untrans(f2 < f1 ? p2 : p1, out);
-  if (bnd) out[5] = (f2 < f1 ? p2 : p1)[5];
+  if (bnd) {
+    out[5] = (f2 < f1 ? p2 : p1)[5];
+    out[7] = *drift ? (f2 < f1 ? p2 : p1)[6] : 0.0;
+  }
   out[6] = (f2 < f1 ? f2 : f1);
   free(ys); free(br); free(A);
 }
 void arck4_fit_nalr(const double *x, const double *y, const int *n, const int *J,
                     const double *lambda, const int *w, const double *p,
                     const double *start, double *out) {
-  arck4_fit_nalr_box(x, y, n, J, lambda, w, p, NULL, start, out);
+  int nodrift = 0;
+  arck4_fit_nalr_box(x, y, n, J, lambda, w, p, NULL, &nodrift, start, out);
 }
 
 /* ---------- exact mean of the tropical band arc length under Gaussian error ------------------- */

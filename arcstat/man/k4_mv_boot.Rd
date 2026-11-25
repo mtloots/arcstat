@@ -12,7 +12,8 @@ k4_mv_boot(
   B = 50L,
   seed = 4207L,
   bounds = c(-0.98, 0.95, 0, 4),
-  maxit = 1500L
+  maxit = 1500L,
+  drift = FALSE
 )
 }
 \arguments{
@@ -26,7 +27,11 @@ k4_mv_boot(
 
 \item{bounds}{the admissible shape box \code{(k_lo, k_hi, h_lo, h_hi)}}
 
-\item{maxit}{Nelder--Mead iteration cap per start}
+\item{maxit}{Nelder--Mead iteration cap of a replicate refit}
+
+\item{drift}{\code{TRUE} lets \code{med9-LS}, \code{med21-LS} and \code{arc} carry the linear drift
+that the other five pipelines always carry. With \code{FALSE} the spread between pipelines is
+mostly the effect of leaving the drift out.}
 }
 \value{
 \code{list(a_pt, A)}: the eight named point estimates, and the \code{B} by eight

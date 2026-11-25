@@ -21,15 +21,17 @@ box <- c(-0.98, 0.95, -60, 4)
 fit <- rbind(c(1, 0.2, 300, 9, 2, -0.3, 0.2), c(2, -0.1, 250, 8, 1.5, 0.1, 0))
 m <- k4_boot(x, y, fit, box, gev = c(FALSE, TRUE), B = 5L); i <- k4_boot(x, y, fit, box, B = 3L, block = 1L, seed = c(5L, 77L))
 q <- k4eq_boot(x, y, f$fit, B = 5L); r <- k4eq_boot(x, y, g$fit, tab, B = 2L)
+u <- k4_fit(x, y, gate = TRUE, gev = TRUE); w <- k4_fit(x, y, gate = "best", keep = 4L); z <- k4_fit(x, y, hfix = -1)
+b2 <- bc_host_fit(x, y, keep = 2L); mv <- k4_mv_boot(x[[2]], y[[2]], B = 2L, bounds = box, drift = TRUE)
 v <- function(a) as.vector(aperm(a, c(2, 1, 3)))
 vals <- c(k4_locus_k(c(-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6)), t(f$fit), aperm(f$pieces, c(2, 3, 1)), t(g$fit), aperm(g$pieces, c(2, 3, 1)),
-          t(b$free), t(b$con), v(m$boot), m$block, v(i$boot), i$block, v(q$boot), q$block, v(r$boot), r$block)
+          t(b$free), t(b$con), v(m$boot), m$block, v(i$boot), i$block, v(q$boot), q$block, v(r$boot), r$block, t(u), t(w), t(z), t(b2$free), t(b2$con), mv$a_pt, t(mv$A))
 cat(ifelse(is.nan(vals), "NaN", sprintf("%.17g", vals)), sep="\n")
 ' > "$OUT/r.txt"
 for T in "" 1 2 8; do
 PYTHONPATH="$PKG/arcstat-py/src" ARCSTAT_THREADS=$T python3 - <<PY > "$OUT/py$T.txt"
 import math
-from arcstat import bc_host_fit, eq_bstar, k4_boot, k4_cdf, k4_locus_k, k4eq_boot, k4eq_fit
+from arcstat import bc_host_fit, eq_bstar, k4_boot, k4_cdf, k4_fit, k4_locus_k, k4_mv_boot, k4eq_boot, k4eq_fit
 xx = lambda n: [20*i/(n-1) for i in range(n)]
 x = [xx(120), xx(90)]
 F1 = k4_cdf(x[0], 9, 2, -0.3, 0.2); F2 = k4_cdf(x[1], 8, 1.5, 0.1, -0.4)
@@ -44,9 +46,11 @@ box = (-0.98, 0.95, -60, 4)
 fit = [(1, 0.2, 300, 9, 2, -0.3, 0.2), (2, -0.1, 250, 8, 1.5, 0.1, 0)]
 m, mb = k4_boot(x, y, fit, box, gev=[False, True], B=5); i, ib = k4_boot(x, y, fit, box, B=3, block=1, seed=[5, 77])
 q, qb = k4eq_boot(x, y, f, B=5); r, rb = k4eq_boot(x, y, g, tab, B=2)
+u = k4_fit(x, y, gate=True, gev=True); w = k4_fit(x, y, gate="best", keep=4); z = k4_fit(x, y, hfix=-1)
+b2 = bc_host_fit(x, y, keep=2); mv = k4_mv_boot(x[1], y[1], B=2, bounds=box, drift=True)
 def flat(o):
     return [v for e in o for v in flat(e)] if isinstance(o, (list, tuple)) else [o]
-vals = flat([k4_locus_k([-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6]), f, fp, g, gp, fr, co, m, mb, i, ib, q, qb, r, rb])
+vals = flat([k4_locus_k([-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6]), f, fp, g, gp, fr, co, m, mb, i, ib, q, qb, r, rb, u, w, z, b2, mv])
 print("\n".join("NaN" if math.isnan(v) else "%.17g" % v for v in vals))
 PY
 cmp -s "$OUT/r.txt" "$OUT/py$T.txt" || { echo "VERDICT: MISMATCH (threads '$T')"; diff "$OUT/r.txt" "$OUT/py$T.txt" | head; exit 1; }

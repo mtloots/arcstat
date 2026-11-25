@@ -6,8 +6,13 @@ void arcbt_k4eq(const double *X, const double *Y, const int *off, const int *nr,
                 const double *bounds, const int *it1, const int *it2, const int *K,
                 double *out, double *outp);
 void arcbt_host(const double *X, const double *Y, const int *off, const int *nr,
-                const double *cal, const double *cbe, const int *nc,
-                const int *it1, const int *it2, const int *K, double *outf, double *outc);
+                const double *cal, const double *cbe, const int *nc, const double *eps,
+                const int *dense, const int *it1, const int *it2, const int *K,
+                double *outf, double *outc);
+void arcbt_k4fit(const double *X, const double *Y, const int *off, const int *nr, const double *bounds,
+                 const double *floors, const int *nfl, const int *gate, const int *gevsel,
+                 const double *hfix, const int *it1, const int *it2, const int *K, double *out);
+int arcbt_k4one(const double *x, const double *y, int n, const double *box, double hfix, double *o8);
 void arcbt_k4_boot(const double *X, const double *Y, const int *off, const int *nr,
                    const double *fit, const double *box, const int *gev, const int *B,
                    const int *seed, const int *block, const int *maxit, int *bl, double *out);

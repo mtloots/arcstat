@@ -48,6 +48,7 @@
 #include "arck4.h"
 #include "arcthreads.h"
 #include "arcef.h"
+#include "arcbatch.h"
 
 
 #define MV_M 8
@@ -57,8 +58,8 @@
  * positive h only, so a curve whose fit has h < 0 was searched from the wrong side). Starts outside
  * the box of this run are dropped, those at its lower bound on h included. With hz the grid is that
  * of the h = 0 submodel, where the h of a start is not used. ---- */
-static int mv_starts(const double *x, const double *y, int n, const double *bnd, int hz,
-                     double *st /* <= 300*4 */) {
+int arck4_starts(const double *x, const double *y, int n, const double *bnd, int hz,
+                 double *st /* <= 300*4 */) {
   double *ys = (double *)malloc((size_t)n * sizeof(double));
   if (!ys) return 0;
   int w = 21;
@@ -107,11 +108,13 @@ static double mv_read_a(const double *vout) {
   return isfinite(r[0]) ? r[0] : NAN;
 }
 
-/* a local search from each start, best kept; o as arck4_fit_varpro */
+/* one start (a replicate): a local search from it; more (a point fit): the start grid, by the batched
+ * Levenberg-Marquardt search. o as arck4_fit_varpro */
 static int mv_vp(const double *x, const double *y, int n, const double *st, int ns, int maxit,
                  const double *bounds, double hfix, double *o) {
   for (int i = 0; i < 8; i++) o[i] = NAN;
   if (ns < 1) return 0;
+  if (ns > 1) return arcbt_k4one(x, y, n, bounds, hfix, o);   /* a point fit: the whole start grid */
   arck4_fit_varpro(x, y, &n, st, &ns, &maxit, bounds, &hfix, o);
   return isfinite(o[7]) && o[7] < 1e11;
 }
@@ -221,17 +224,17 @@ static double mv_read_th(const double *fit7) {
 
 /* the starts of every pipeline. As a point fit: the grid, shared. As a replicate: one start, the
  * pipeline's own point fit, because a resampled curve differs from the original only by noise. */
-typedef struct { double f[MV_M][4], g[MV_M][4], arc[6]; int okf[MV_M], okg[MV_M], oka; } mv_warm;
+typedef struct { double f[MV_M][4], g[MV_M][4], arc[7]; int okf[MV_M], okg[MV_M], oka; } mv_warm;
 
 /* all eight pipelines on one curve; w is read when warm is set and written otherwise */
 static void mv_fit8(const double *x, const double *y, int n, double cutx, const double *sf, int nf,
-                    const double *sg, int ng, int maxit, const double *bounds, int warm, mv_warm *w,
+                    const double *sg, int ng, int maxit, const double *bounds, int drift, int warm, mv_warm *w,
                     double *out8) {
   for (int m = 0; m < MV_M; m++) out8[m] = NAN;
   double *yb = (double *)malloc((size_t)n * sizeof(double));
   double *xb = (double *)malloc((size_t)n * sizeof(double));
   if (!yb || !xb) { free(yb); free(xb); return; }
-  double of[8], og[8], th[7];
+  double of[8], og[8], th[8];
 
   static const int sel[4] = {0, 5, 6, 7};
   for (int q = 0; q < 4; q++) {
@@ -254,26 +257,34 @@ static void mv_fit8(const double *x, const double *y, int n, double cutx, const 
   for (int m = 1; m <= 2; m++) {
     int win = (m == 1) ? 9 : 21;
     arck4_runmed(y, &n, &win, yb);
-    int ok = mv_fit_nls(x, yb, n, warm ? w->f[m] : sf, warm ? w->okf[m] : nf, maxit, bounds, th);
+    int ok;
+    double slope = 0.0;
+    if (drift) {
+      ok = mv_vp(x, yb, n, warm ? w->f[m] : sf, warm ? w->okf[m] : nf, maxit, bounds, NAN, of) && of[2] > 0.0;
+      if (ok) {
+        th[0] = of[0]; slope = of[1]; th[1] = of[2]; th[2] = of[3]; th[3] = of[4]; th[4] = of[5]; th[5] = of[6];
+        th[6] = of[7];
+      }
+    } else ok = mv_fit_nls(x, yb, n, warm ? w->f[m] : sf, warm ? w->okf[m] : nf, maxit, bounds, th);
     if (ok) out8[m] = mv_read_th(th);
     if (!warm) {
       w->okf[m] = ok;
       if (ok) mv_st_th(th, w->f[m]);
       if (ok && m == 1) {                /* the banded fit starts from the window-9 fit */
         w->arc[0] = th[0]; w->arc[1] = log(th[1]); w->arc[2] = th[2]; w->arc[3] = log(th[3]);
-        w->arc[4] = th[4]; w->arc[5] = th[5];
+        w->arc[4] = th[4]; w->arc[5] = th[5]; w->arc[6] = slope;
       }
       if (m == 1) w->oka = ok;
     }
   }
   if (w->oka) {
     int J = 12, w9 = 9; double lambda = 1.0, p = 2.0;
-    arck4_fit_nalr_box(x, y, &n, &J, &lambda, &w9, &p, bounds, w->arc, th);
+    arck4_fit_nalr_box(x, y, &n, &J, &lambda, &w9, &p, bounds, &drift, w->arc, th);
     if (th[6] < 1e11) {
       out8[3] = mv_read_th(th);
       if (!warm) {
         w->arc[0] = th[0]; w->arc[1] = log(th[1]); w->arc[2] = th[2]; w->arc[3] = log(th[3]);
-        w->arc[4] = th[4]; w->arc[5] = th[5];
+        w->arc[4] = th[4]; w->arc[5] = th[5]; w->arc[6] = th[7];
       }
     }
   }
@@ -281,22 +292,23 @@ static void mv_fit8(const double *x, const double *y, int n, double cutx, const 
 }
 
 /* entry point. a_pt gets the eight point estimates (full start grid, in the box the caller passes,
- * which should be that of the run's own point fit); A gets B x 8 replicate readings row-major
+ * which should be that of the run's own point fit); drift: pipelines 2 to 4 carry the linear drift the
+ * others carry; A gets B x 8 replicate readings row-major
  * (block-resampled residuals, each pipeline refitted from its own point fit). */
 void arck4_mv_boot(const double *x, const double *y, const int *n, const double *cutx,
                    const int *B, const int *seed, const double *bounds, const int *maxit,
-                   double *a_pt, double *A) {
-  int N = *n, NB = *B, MI = *maxit;
+                   const int *drift, double *a_pt, double *A) {
+  int N = *n, NB = *B, MI = *maxit, DR = *drift;
   for (int m = 0; m < MV_M; m++) a_pt[m] = NAN;
   for (long i = 0; i < (long)(NB > 0 ? NB : 0) * MV_M; i++) A[i] = NAN;
 
   double *sf = (double *)malloc(300 * 4 * sizeof(double));
   double *sg = (double *)malloc(300 * 4 * sizeof(double));
   if (!sf || !sg) { free(sf); free(sg); return; }
-  int nf = mv_starts(x, y, N, bounds, 0, sf), ng = mv_starts(x, y, N, bounds, 1, sg);
+  int nf = arck4_starts(x, y, N, bounds, 0, sf), ng = arck4_starts(x, y, N, bounds, 1, sg);
   mv_warm w;
   memset(&w, 0, sizeof w);
-  mv_fit8(x, y, N, *cutx, sf, nf, sg, ng, MI, bounds, 0, &w, a_pt);
+  mv_fit8(x, y, N, *cutx, sf, nf, sg, ng, MI, bounds, DR, 0, &w, a_pt);
   if (NB <= 0 || !w.okf[0]) { free(sf); free(sg); return; }
 
   /* residuals of the base fit, the paper's primary selection on the whole curve */
@@ -328,7 +340,7 @@ void arck4_mv_boot(const double *x, const double *y, const int *n, const double 
     unsigned long long s = arcef_seed(*seed, b);       /* scrambled: no two streams overlap */
     arcef_blockdraw(m0, r, N, bl, &s, y2);
     mv_warm ww = w;
-    mv_fit8(x, y2, N, *cutx, NULL, 0, NULL, 0, MI, bounds, 1, &ww, A + (size_t)b * MV_M);
+    mv_fit8(x, y2, N, *cutx, NULL, 0, NULL, 0, MI, bounds, DR, 1, &ww, A + (size_t)b * MV_M);
     free(y2);
   }
   free(m0); free(r);

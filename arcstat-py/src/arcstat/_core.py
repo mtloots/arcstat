@@ -675,19 +675,35 @@ def k4eq_fit(x, y, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), it1=12, it2=150
                     _vec(bounds), _i(it1), _i(it2), _i(keep), out, pv)
     return _rows(list(out), 11), [_rows(r, 11) for r in _rows(list(pv), 11 * npo)]
 
-_lib.arcbt_host.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _ip, _dp, _dp]
-def bc_host_fit(x, y, curve, it1=15, it2=200, keep=6):
+_lib.arcbt_host.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _ip, _dp, _dp]
+def bc_host_fit(x, y, curve=None, it1=15, it2=200, keep=6, eps=1e-6, dense=False):
     """Beta-companion fits with drift, free and on the equivalence curve (alpha, beta), many runs in
-    one call; see the R function of the same name. Returns (free, con): per run (g0, m, g1, s, w,
+    one call; curve None is the whole curve with beta at least -1 + eps, computed inside; see the R function of the same name. Returns (free, con): per run (g0, m, g1, s, w,
     alpha, beta, rss, a, b)."""
     X, Y, off, R = _runs(x, y)
+    curve = [] if curve is None else curve
     cal = [float(r[0]) for r in curve]; cbe = [float(r[1]) for r in curve]
-    if len(cal) < 2 or any(b <= a for a, b in zip(cal, cal[1:])):
+    if len(cal) == 1 or any(b <= a for a, b in zip(cal, cal[1:])):
         raise ValueError("curve needs at least two rows, increasing in alpha")
     f = (_ct.c_double * (10 * R))(); c = (_ct.c_double * (10 * R))()
-    _lib.arcbt_host(_vec(X), _vec(Y), _iv(off), _i(R), _vec(cal), _vec(cbe), _i(len(cal)),
-                    _i(it1), _i(it2), _i(keep), f, c)
+    _lib.arcbt_host(_vec(X), _vec(Y), _iv(off), _i(R), _vec(cal or [0.0]), _vec(cbe or [0.0]),
+                    _i(len(cal)), _d1(eps), _i(int(bool(dense))), _i(it1), _i(it2), _i(keep), f, c)
     return _rows(list(f), 10), _rows(list(c), 10)
+
+_lib.arcbt_k4fit.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _dp, _ip, _ip, _ip, _dp]
+def k4_fit(x, y, bounds=(-0.98, 0.95, -60.0, 4.0), floors=(-60, -8, -3, -1.2, -0.5, 0), gate=False,
+           gev=False, hfix=None, it1=12, it2=200, keep=8):
+    """Free kappa fits with drift from the built-in start grid, many runs in one call; see the R
+    function of the same name. gate: False, True or "best". Returns per run (g0, m, g1, mu, sigma, k,
+    h, rss, a, b, gev, dAIC, h_floor, physical)."""
+    X, Y, off, R = _runs(x, y)
+    g = 2 if gate == "best" else int(gate is True)
+    fl = list(floors) if g == 1 else [bounds[2]]
+    out = (_ct.c_double * (14 * R))()
+    _lib.arcbt_k4fit(_vec(X), _vec(Y), _iv(off), _i(R), _vec(bounds), _vec(fl), _i(len(fl)), _i(g),
+                     _i(int(bool(gev))), _d1(float("nan") if hfix is None else float(hfix)), _i(it1),
+                     _i(it2), _i(keep), out)
+    return _rows(list(out), 14)
 
 def _seeds(seed, R):
     s = [int(seed) + r for r in range(R)] if not hasattr(seed, "__len__") else [int(v) for v in seed]
@@ -736,21 +752,22 @@ def k4eq_boot(x, y, fit, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), B=400, se
                          _i(it2), bl, out)
     return [_rows(r, 4) for r in _rows(list(out), 4 * B)], list(bl)
 
-_lib.arck4_mv_boot.argtypes = [_dp, _dp, _ip, _dp, _ip, _ip, _dp, _ip, _dp, _dp]
+_lib.arck4_mv_boot.argtypes = [_dp, _dp, _ip, _dp, _ip, _ip, _dp, _ip, _ip, _dp, _dp]
 def k4_mv_boot(x, y, cut=float("-inf"), B=50, seed=4207, bounds=(-0.98, 0.95, 0.0, 4.0),
-               maxit=1500):
+               maxit=1500, drift=False):
     """The fitting-method multiverse of one induction run: eight admissible pipelines under one
     moving-block residual bootstrap, all in the shared C back end. Same pipelines, replicate
     policy and per-replicate splitmix64 streams as the R front; byte-identical output whatever
     the thread count. Returns (a_pt, A): the eight point estimates in method order (LS, med9-LS,
     med21-LS, arc, GEV-LS, transient-excised, grid-odd, grid-even), and B rows of replicate
-    readings (None when B == 0)."""
+    readings (None when B == 0). drift: med9-LS, med21-LS and arc carry the linear drift too."""
     n = len(x)
     a_pt = (_ct.c_double * 8)()
     A = (_ct.c_double * (max(1, B) * 8))()
     _lib.arck4_mv_boot(_vec(x), _vec(y), _i(n),
                        _d1(cut if cut == cut and cut > float("-inf") else -1e300),
-                       _i(B), _i(seed), _vec(bounds), _i(maxit), a_pt, A)
+                       _i(B), _i(seed), _vec(bounds), _i(maxit),
+                       _i(int(bool(drift))), a_pt, A)
     rows = [list(A[r * 8:(r + 1) * 8]) for r in range(B)] if B > 0 else None
     return list(a_pt), rows
 

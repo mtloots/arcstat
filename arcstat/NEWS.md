@@ -1,3 +1,17 @@
+# arcstat (development version 0.3.1.9003)
+
+* New `k4_fit()`: free kappa fits with drift, many runs in one call, by Levenberg-Marquardt from a
+  built-in start grid wider than the one used with `k4_fit_varpro()`, with options for holding h, for
+  the h = 0 submodel selection and for the rule on physical fits. `gate = "best"` is the lowest
+  physical minimum. A ladder of floors on h (`gate = TRUE`) depends on how well the search does: a
+  better search finds lower minima that are not physical and steps past floors a weaker one accepts.
+
+* `k4_mv_boot()` has `drift`: `med9-LS`, `med21-LS` and `arc` can carry the linear drift the other
+  pipelines always carried (`FALSE`, as before, is the default). Its point fits use the search of
+  `k4_fit()`.
+
+* `bc_host_fit()`: `curve = NULL` is the whole equivalence curve, solved exactly; `eps` and `dense`.
+
 # arcstat (development version 0.3.1.9002)
 
 * **Number of threads.** Every parallel loop now uses one setting: the option `arcstat.threads`,

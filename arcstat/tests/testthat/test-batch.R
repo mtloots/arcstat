@@ -33,7 +33,7 @@ test_that("results are bit-identical on 1, 2 and 8 threads", {
     options(arcstat.threads = nt)
     e <- k4eq_fit(X, Y)
     list(e, k4eq_fit(X, Y, cbind(seq(-1, 0.4, 0.2), k4_locus_k(seq(-1, 0.4, 0.2)))),
-         bc_host_fit(X, Y, curve, keep = 3L),
+         bc_host_fit(X, Y, curve, keep = 3L), k4_fit(X, Y, gate = TRUE, gev = TRUE),
          k4_boot(X, Y, fit, box, gev = c(FALSE, TRUE), B = 6L), k4eq_boot(X, Y, e$fit, B = 6L),
          k4_mv_boot(R2$x, R2$y, B = 2L, bounds = box, maxit = 300L),
          k4_fit_varpro(R1$x, R1$y, rbind(c(9, log(2), 0, 0.1), c(8, 0, 0, -1)), bounds = box),
@@ -129,4 +129,33 @@ test_that("the multiverse reaches a curve with h < 0", {
   a <- k4_mv_boot(x, y, B = 0L, bounds = c(-0.98, 0.95, -60, 4))$a_pt
   expect_lt(max(abs(a[c("LS", "med9-LS", "med21-LS", "grid-odd", "grid-even")] - a0)), 0.15)
   expect_lt(abs(a[["arc"]] - a0), 0.6)           # twelve bands of a smoothed trace: coarser
+})
+
+test_that("free kappa fit: objective, submodel, gate, and not above Nelder-Mead", {
+  f <- k4_fit(X, Y); g <- k4_fit(X, Y, hfix = 0); s <- k4_fit(X, Y, gate = "best", gev = TRUE)
+  expect_true(all(g[, "h"] == 0) && all(g[, "rss"] >= f[, "rss"]))
+  for (r in 1:2) {
+    p <- f[r, ]
+    expect_equal(p[["rss"]], ob(X[[r]], Y[[r]], k4_cdf(X[[r]], p[["mu"]], p[["sigma"]], p[["k"]], p[["h"]])), tolerance = 1e-11)
+    v <- k4_fit_varpro(X[[r]], Y[[r]], as.matrix(expand.grid(c(7, 10), log(c(1, 3)), c(-0.4, 0.2), c(-1, 0.1))), bounds = box)
+    expect_lt(p[["rss"]], v$rss * (1 + 1e-9))
+    d <- length(X[[r]]) * log(g[r, "rss"] / f[r, "rss"]) - 2
+    expect_equal(s[[r, "gev"]], as.numeric(d < 0))
+    expect_equal(s[[r, "physical"]], 1)
+  }
+  ## a falling curve: the lowest minimum is not physical, gate = "best" does not return it
+  y <- 300 - 250 * k4_cdf(R1$x, 9, 2, 0.1, -0.5) + sin(4321 * seq_along(R1$x))
+  expect_lt(k4_fit(R1$x, y)[1, "g1"], 0)
+  b <- k4_fit(R1$x, y, gate = "best")[1, ]
+  expect_true(is.nan(b[["rss"]]) || b[["g1"]] > 0)
+})
+
+test_that("the whole companion curve, and drift in every pipeline", {
+  h <- bc_host_fit(X, Y); t <- bc_host_fit(X, Y, curve)
+  expect_true(all(h$con[, "rss"] <= t$con[, "rss"] * (1 + 1e-4)) && all(h$con[, "rss"] >= h$free[, "rss"]))
+  expect_equal(h$con[[1, "beta"]], eq_bstar(h$con[[1, "alpha"]]), tolerance = 1e-12)
+  a <- k4_mv_boot(R1$x, R1$y, B = 0L, bounds = box, drift = TRUE)$a_pt
+  n <- k4_mv_boot(R1$x, R1$y, B = 0L, bounds = box)$a_pt
+  expect_identical(a[c("LS", "GEV-LS", "grid-odd")], n[c("LS", "GEV-LS", "grid-odd")])
+  expect_lt(abs(a[["med9-LS"]] - a[["LS"]]), abs(n[["med9-LS"]] - n[["LS"]]))
 })

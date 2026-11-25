@@ -38,12 +38,15 @@ void arck4_fit_nalr(const double *x, const double *y, const int *n, const int *J
                     const double *start, double *out);
 void arck4_fit_nalr_box(const double *x, const double *y, const int *n, const int *J,
                         const double *lambda, const int *w, const double *p, const double *bnd,
-                        const double *start, double *out);
+                        const int *drift, const double *start, double *out);
 typedef double (*objfn)(const double *, const void *);
 void arck4_nmd(objfn f, const void *ctx, int d, const double *start, int maxit,
                double *xout, double *fout);
 void arck4_mv_boot(const double *x, const double *y, const int *n, const double *cutx,
                    const int *B, const int *seed, const double *bounds, const int *maxit,
-                   double *a_pt, double *A);
+                   const int *drift, double *a_pt, double *A);
+
+/* the start grid (mu, log sigma, k, h), at most 300 x 4, of arcmv.c; hz: h is held */
+int arck4_starts(const double *x, const double *y, int n, const double *bnd, int hz, double *st);
 
 #endif

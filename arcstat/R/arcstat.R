@@ -1268,17 +1268,20 @@ eq_E_sweep <- function(alpha, betas){
 #' @param B bootstrap replicates; \code{0} returns point estimates only
 #' @param seed integer seed for the per-replicate streams
 #' @param bounds the admissible shape box \code{(k_lo, k_hi, h_lo, h_hi)}
-#' @param maxit Nelder--Mead iteration cap per start
+#' @param maxit Nelder--Mead iteration cap of a replicate refit
+#' @param drift \code{TRUE} lets \code{med9-LS}, \code{med21-LS} and \code{arc} carry the linear drift
+#'   that the other five pipelines always carry. With \code{FALSE} the spread between pipelines is
+#'   mostly the effect of leaving the drift out.
 #' @return \code{list(a_pt, A)}: the eight named point estimates, and the \code{B} by eight
 #'   matrix of replicate readings (\code{NULL} when \code{B = 0})
 #' @export
 k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
-                       bounds = c(-0.98, 0.95, 0, 4), maxit = 1500L){
+                       bounds = c(-0.98, 0.95, 0, 4), maxit = 1500L, drift = FALSE){
   .arc_sync_threads()
   n <- length(x); stopifnot(length(y) == n, B >= 0)
   r <- .C("arck4_mv_boot", as.double(x), as.double(y), as.integer(n),
           as.double(if (is.finite(cut)) cut else -1e300), as.integer(B),
-          as.integer(seed), as.double(bounds), as.integer(maxit),
+          as.integer(seed), as.double(bounds), as.integer(maxit), as.integer(drift),
           a_pt = double(8), A = double(max(1L, B) * 8))
   meth <- c("LS", "med9-LS", "med21-LS", "arc", "GEV-LS", "transient-excised",
             "grid-odd", "grid-even")
@@ -1571,13 +1574,16 @@ k4eq_fit <- function(x, y, locus = NULL, bounds = c(-0.98, 0.95, -60, 4),
 #'
 #' Fits \eqn{y = g_0 + m x + g_1 F((x-s)/w;\alpha,\beta)}, \eqn{F} the inverse of the regularised
 #' incomplete beta function with parameters \eqn{\alpha+1,\beta+1}, once with \eqn{\alpha,\beta} free
-#' in \eqn{[-1+10^{-6}, 20]} and once with \eqn{\beta} on the equivalence curve. \eqn{F} is exactly 0
+#' in \eqn{[-1+}\code{eps}\eqn{, 20]} and once with \eqn{\beta} on the equivalence curve. \eqn{F} is exactly 0
 #' and 1 off the support. The method is that of \code{\link{k4eq_fit}}. The constrained optimum is a
 #' point of the free family and is also a start of the free fit, so the constrained sum of squares is
 #' never below the free one.
 #' @inheritParams k4eq_fit
-#' @param curve a two-column matrix \code{(alpha, beta)} of the equivalence curve, increasing in
-#'   alpha, interpolated linearly; alpha is held inside it. See \code{\link{eq_bstar}}.
+#' @param curve \code{NULL} for the whole equivalence curve with beta of at least \code{-1 + eps},
+#'   computed inside (\code{\link{eq_bstar}}); or a two-column matrix \code{(alpha, beta)} of it,
+#'   increasing in alpha, interpolated linearly, in which alpha is held.
+#' @param eps how close to -1 the exponents may come.
+#' @param dense use 16 (free) and 8 (constrained) times as many starts.
 #' @return a list of two matrices, \code{free} and \code{con}, with one row per run and columns
 #'   \code{g0, m, g1, s, w, alpha, beta, rss, a, b}; \code{a} and \code{b} are the two readings.
 #' @examples
@@ -1587,12 +1593,14 @@ k4eq_fit <- function(x, y, locus = NULL, bounds = c(-0.98, 0.95, -60, 4),
 #' h <- bc_host_fit(x, y, curve)
 #' h$con[, "rss"] / h$free[, "rss"]
 #' @export
-bc_host_fit <- function(x, y, curve, it1 = 15L, it2 = 200L, keep = 6L) {
-  d <- .arc_runs(x, y); curve <- as.matrix(curve)
-  stopifnot(ncol(curve) == 2L, nrow(curve) >= 2L, all(is.finite(curve)), all(diff(curve[, 1]) > 0))
+bc_host_fit <- function(x, y, curve = NULL, it1 = 15L, it2 = 200L, keep = 6L, eps = 1e-6,
+                        dense = FALSE) {
+  d <- .arc_runs(x, y)
+  curve <- if (is.null(curve)) matrix(0, 0L, 2L) else as.matrix(curve)
+  stopifnot(nrow(curve) != 1L, eps >= 1e-12, eps < 0.01, ncol(curve) == 2L, all(is.finite(curve)), all(diff(curve[, 1]) > 0))
   .arc_sync_threads()
   r <- .C(C_arcbt_host, d$X, d$Y, d$off, d$R, as.double(curve[, 1]), as.double(curve[, 2]),
-          nrow(curve), as.integer(it1), as.integer(it2), as.integer(keep),
+          nrow(curve), as.double(eps), as.integer(dense), as.integer(it1), as.integer(it2), as.integer(keep),
           f = double(10 * d$R), c = double(10 * d$R), NAOK = TRUE)
   nm <- list(d$names, c("g0", "m", "g1", "s", "w", "alpha", "beta", "rss", "a", "b"))
   list(free = matrix(r$f, d$R, 10, byrow = TRUE, dimnames = nm),
@@ -1672,4 +1680,43 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
           .arc_seeds(seed, d$R), as.integer(block), as.integer(it2), bl = integer(d$R),
           out = double(4 * B * d$R), NAOK = TRUE)
   list(boot = .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h"), d$names), block = r$bl)
+}
+
+#' Free kappa fits with drift, many runs in one call
+#'
+#' The fit of \code{\link{k4_fit_varpro}} from a built-in start grid, by the method of
+#' \code{\link{k4eq_fit}} (Levenberg--Marquardt on the projected residual, best starts carried to
+#' convergence and polished), with the submodel selection and the rule on acceptable fits as options.
+#' @inheritParams k4eq_fit
+#' @param bounds the box \code{(k_lo, k_hi, h_lo, h_hi)}; the submodel is always fitted in it.
+#' @param floors lower bounds on \eqn{h}, deepest first, tried in turn when \code{gate = TRUE}; otherwise
+#'   \code{bounds[3]} is used.
+#' @param gate \code{FALSE} takes the lowest minimum whatever it is; \code{TRUE} takes the first of \code{floors} whose best fit is physical, meaning that
+#'   \code{g1 > 0} and the tangent reading lies between 0 and \code{max(x)}, and the fit at the last
+#'   floor if none is; \code{"best"} takes the lowest minimum that is physical in the box
+#'   \code{bounds}, and \code{NaN} where none is found. \code{TRUE} depends on the search: the better
+#'   it is, the more often an unphysical minimum is the lowest at every floor.
+#' @param gev fit also the generalised extreme value submodel \eqn{h=0} and choose it when
+#'   \eqn{n\log(rss_0/rss)-2<0} (with \code{gate}, only if it is physical).
+#' @param hfix hold \eqn{h} there; \code{NA} searches it.
+#' @return a matrix with one row per run and columns \code{g0, m, g1, mu, sigma, k, h, rss, a, b, gev,
+#'   dAIC, h_floor, physical}. \code{gev} is 1 where the submodel was chosen.
+#' @examples
+#' x <- seq(0, 20, length.out = 120)
+#' y <- 1 + 0.2 * x + 300 * k4_cdf(x, 9, 2, -0.3, -0.5) + sin(4321 * seq_along(x))
+#' k4_fit(x, y)[1, c("k", "h", "rss", "a", "b")]
+#' @export
+k4_fit <- function(x, y, bounds = c(-0.98, 0.95, -60, 4), floors = c(-60, -8, -3, -1.2, -0.5, 0),
+                   gate = FALSE, gev = FALSE, hfix = NA_real_, it1 = 12L, it2 = 200L, keep = 8L) {
+  d <- .arc_runs(x, y)
+  stopifnot(length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4], length(hfix) == 1L)
+  gate <- if (identical(gate, "best")) 2L else as.integer(isTRUE(gate))
+  fl <- if (gate == 1L) floors else bounds[3]
+  stopifnot(length(fl) >= 1L, all(is.finite(fl)), all(fl < bounds[4]))
+  .arc_sync_threads()
+  r <- .C(C_arcbt_k4fit, d$X, d$Y, d$off, d$R, as.double(bounds), as.double(fl), length(fl),
+          as.integer(gate), as.integer(gev), as.double(hfix), as.integer(it1), as.integer(it2),
+          as.integer(keep), out = double(14 * d$R), NAOK = TRUE)$out
+  matrix(r, d$R, 14, byrow = TRUE, dimnames = list(d$names, c("g0", "m", "g1", "mu", "sigma", "k",
+         "h", "rss", "a", "b", "gev", "dAIC", "h_floor", "physical")))
 }
