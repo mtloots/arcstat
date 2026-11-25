@@ -17,7 +17,17 @@ from ._core import (bc_cdf, bc_pdf, bc_q, eq_E, eq_bstar, eq_readings, eq_readin
 # the kappa-4 induction curve
 from ._core import (k4_band_model, k4_band_trop_mean, k4_band_sample, k4_cdf, k4_fit_aleq, k4_fit_lmom, k4_fit_nalr, k4_fit_nls, k4_fit_varpro, k4_mv_boot, eqfit_bc, eqfit_blocklen, eqfit_estsim, eqfit_msim, eqfit_nullT, k4_b_sweep, eq_E_sweep, k4_pdf, k4_q, k4_readings, k4_runmed, k4_tau34)
 
+# threads, and the fits and bootstraps that take many runs in one call
+from ._core import (bc_host_fit, get_threads, k4_boot, k4_locus_k, k4eq_boot, k4eq_fit, set_threads)
+
 __all__ = [
+    "bc_host_fit",
+    "get_threads",
+    "k4_boot",
+    "k4_locus_k",
+    "k4eq_boot",
+    "k4eq_fit",
+    "set_threads",
     "al_band_model",
     "al_band_model_star",
     "al_band_sample",
@@ -89,4 +99,4 @@ __all__ = [
     "k4_tau34",
     "sample_lmoments",
 ]
-__version__ = "0.3.2.dev1"
+__version__ = "0.3.2.dev2"

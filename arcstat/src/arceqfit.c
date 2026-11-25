@@ -34,15 +34,11 @@
 #include "arceq.h"
 #include "arceq2.h"
 
-#ifdef _OPENMP
-static int ef_threads(void) {
-  int t = omp_get_max_threads();
-  return t > 2 ? 2 : (t < 1 ? 1 : t);
-}
-#endif
+#include "arcthreads.h"
+#include "arcef.h"
 
 /* ---- deterministic RNG: splitmix64 uniforms, Box-Muller normals ---- */
-static double ef_unif(unsigned long long *s) {
+double arcef_unif(unsigned long long *s) {
   unsigned long long z = (*s += 0x9E3779B97F4A7C15ULL);
   z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
   z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
@@ -50,11 +46,11 @@ static double ef_unif(unsigned long long *s) {
   return (double)(z >> 11) * (1.0 / 9007199254740992.0);
 }
 static double ef_norm(unsigned long long *s) {
-  double u1 = ef_unif(s), u2 = ef_unif(s);
+  double u1 = arcef_unif(s), u2 = arcef_unif(s);
   if (u1 < 1e-300) u1 = 1e-300;
   return sqrt(-2.0 * log(u1)) * cos(6.283185307179586476925286766559 * u2);
 }
-static unsigned long long ef_seed(int seed, int b) {
+unsigned long long arcef_seed(int seed, int b) {
   /* The starting state must be SCRAMBLED, not offset: splitmix64 advances its state by the
    * golden-ratio constant per draw, so states offset by multiples of it are the same sequence
    * shifted -- replicate streams built that way overlap almost entirely, and an earlier
@@ -72,7 +68,7 @@ static double ef_logis(double p) { return 1.0 / (1.0 + exp(-p)); }
 static double ef_lbeta(double a, double b) { return lgamma(a) + lgamma(b) - lgamma(a + b); }
 
 /* linear interpolation on a table; rule 1 returns NAN outside, rule 2 clamps */
-static double ef_interp(const double *xs, const double *ys, int n, double x, int rule) {
+double arcef_interp(const double *xs, const double *ys, int n, double x, int rule) {
   if (n < 2 || !isfinite(x)) return NAN;
   if (x <= xs[0])   return (rule == 2) ? ys[0]   : (x == xs[0] ? ys[0] : NAN);
   if (x >= xs[n-1]) return (rule == 2) ? ys[n-1] : (x == xs[n-1] ? ys[n-1] : NAN);
@@ -86,7 +82,7 @@ static double ef_interp(const double *xs, const double *ys, int n, double x, int
  * strongly serially dependent (lag-one autocorrelation up to 0.996 on the application's fits),
  * and iid resampling would understate every bootstrap spread; the block length is read from
  * the residual autocorrelation, as everywhere else in this programme's software. */
-static int ef_blocklen(const double *r, int n) {
+int arcef_blocklen(const double *r, int n) {
   double rb = 0.0;
   for (int i = 0; i < n; i++) rb += r[i];
   rb /= n;
@@ -102,11 +98,11 @@ static int ef_blocklen(const double *r, int n) {
   if (!bl) bl = (int)(pow((double)n, 1.0 / 3.0) + 0.5);
   return bl < 2 ? 2 : bl;
 }
-static void ef_blockdraw(const double *m0, const double *r0, int n, int bl,
+void arcef_blockdraw(const double *m0, const double *r0, int n, int bl,
                          unsigned long long *s, double *yb) {
   int st_ok = n - bl + 1, pos = 0;
   while (pos < n) {
-    int i0 = (int)(ef_unif(s) * st_ok);
+    int i0 = (int)(arcef_unif(s) * st_ok);
     if (i0 >= st_ok) i0 = st_ok - 1;
     for (int i = 0; i < bl && pos < n; i++, pos++) yb[pos] = m0[pos] + r0[i0 + i];
   }
@@ -135,11 +131,13 @@ static void ef_mbc(const double *x, int n, const double *th, double *out, double
 }
 
 /* F and its four derivatives dF/d(mu, sigma, alpha, beta) at the design; columns of length n in D
- * (F first). At a point outside the support, where the curve is clamped, the derivatives are zero.
+ * (F first). At a point outside the support, where the curve is clamped, the derivatives are zero;
+ * the clamp is at zmin and 1 - zmin, and zmin = 0 means F exactly 0 and 1 there.
  * With I(u; a, b) the regularised incomplete beta, F solves I(F) = z, so dF/dz = f = 1/I'(F) and
  * dF/da = -f dI/da at fixed u; the parameter derivative is a central difference of the smaller
  * tail of I, whose error is about 1e-10. Returns the number of points inside the support. */
-static int ef_jac(const double *x, int n, double mu, double sg, double al, double be, double *D) {
+int arcef_jac(const double *x, int n, double mu, double sg, double al, double be, double zmin,
+              double *D) {
   double a = al + 1.0, b = be + 1.0, h = 1e-5;
   if (h > 0.2 * a) h = 0.2 * a;
   if (h > 0.2 * b) h = 0.2 * b;
@@ -151,9 +149,15 @@ static int ef_jac(const double *x, int n, double mu, double sg, double al, doubl
   double s = NAN;
   for (int i = 0; i < n; i++) {
     double z = (x[i] - mu) / sg;
-    int inside = (z > EF_ZMIN && z < 1.0 - EF_ZMIN);
-    if (z < EF_ZMIN) z = EF_ZMIN;
-    if (z > 1.0 - EF_ZMIN) z = 1.0 - EF_ZMIN;
+    int inside = (z > zmin && z < 1.0 - zmin);
+    if (zmin == 0.0 && !inside) {
+      D[i] = (z <= 0.0) ? 0.0 : (z >= 1.0 ? 1.0 : NAN);
+      D[n + i] = D[2 * (size_t)n + i] = D[3 * (size_t)n + i] = D[4 * (size_t)n + i] = 0.0;
+      continue;
+    }
+    if (z < zmin) z = zmin;
+    if (z > 1.0 - zmin) z = 1.0 - zmin;
+    if (z < 1e-300) z = 1e-300;
     s = arceq2_ib_at_frac(&P, z, s);
     double lu, lv;
     if (s > 0.0) { lu = -log1p(exp(-s)); lv = lu - s; } else { lv = -log1p(exp(s)); lu = lv + s; }
@@ -190,7 +194,7 @@ typedef struct {
 static void bc_theta(const double *p, const bc_ctx *c, double *th) {
   double al = c->eqcon ? c->alo + ef_logis(p[4]) * (c->ahi - c->alo)
                        : -1.0 + ef_logis(p[4]) * 0.98;
-  double be = c->eqcon ? ef_interp(c->cal, c->cbe, c->nc, al, 1)
+  double be = c->eqcon ? arcef_interp(c->cal, c->cbe, c->nc, al, 1)
                        : -1.0 + ef_logis(p[5]) * 1.48;
   th[0] = p[0]; th[1] = exp(p[1]); th[2] = p[2]; th[3] = exp(p[3]); th[4] = al; th[5] = be;
 }
@@ -205,7 +209,7 @@ static double bc_obj(const double *p, const void *vc) {
 }
 
 /* readings of a fitted companion curve, in observation units: out = (a, b) */
-static void bc_ip(const double *th, double *out) {
+void arcef_bc_ip(const double *th, double *out) {
   out[0] = out[1] = NAN;
   if (!isfinite(th[4]) || !isfinite(th[5])) return;
   int nt = 0, ng = 20001; double r[5];
@@ -240,7 +244,7 @@ void arceqfit_bc(const double *x, const double *y, const int *n,
     double th[6]; bc_theta(bestp, &c, th);
     memcpy(out, th, 6 * sizeof(double));
     out[6] = bestf;
-    bc_ip(th, out + 7);
+    arcef_bc_ip(th, out + 7);
   }
   free(work); free(zbuf);
 }
@@ -259,28 +263,28 @@ void arceqfit_bc_boot(const double *x, const double *y, const int *n, const doub
   if (!m0 || !z0 || !r0) { free(m0); free(z0); free(r0); return; }
   ef_mbc(x, N, th, m0, z0);
   for (int i = 0; i < N; i++) r0[i] = y[i] - m0[i];
-  int bl = ef_blocklen(r0, N);
+  int bl = arcef_blocklen(r0, N);
   double w0 = (th[4] - *alo) / (*ahi - *alo);
   if (w0 < 1e-6) w0 = 1e-6;
   if (w0 > 1.0 - 1e-6) w0 = 1.0 - 1e-6;
   double p0[5] = { th[0], log(th[1]), th[2], log(th[3]), log(w0 / (1.0 - w0)) };
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic) num_threads(ef_threads())
+#pragma omp parallel for schedule(dynamic) num_threads(arc_threads())
 #endif
   for (int b = 0; b < NB; b++) {
     double *yb = (double *)malloc((size_t)N * sizeof(double));
     double *wk = (double *)malloc((size_t)N * sizeof(double));
     double *zb = (double *)malloc((size_t)N * sizeof(double));
     if (yb && wk && zb) {
-      unsigned long long s = ef_seed(*seed, b);
-      ef_blockdraw(m0, r0, N, bl, &s, yb);
+      unsigned long long s = arcef_seed(*seed, b);
+      arcef_blockdraw(m0, r0, N, bl, &s, yb);
       bc_ctx c = { x, yb, N, 1, cal, cbe, *nc, *alo, *ahi, wk, zb };
       double p1[5], f1, p2[5], f2;
       arck4_nmd(bc_obj, &c, 5, p0, *maxit, p1, &f1);
       arck4_nmd(bc_obj, &c, 5, p1, *maxit, p2, &f2);
       double thb[6], ip[2];
       bc_theta(f2 < f1 ? p2 : p1, &c, thb);
-      bc_ip(thb, ip);
+      arcef_bc_ip(thb, ip);
       out_a[b] = ip[0];
     }
     free(yb); free(wk); free(zb);
@@ -297,7 +301,7 @@ typedef struct {
 static void kq_theta(const double *p, const kq_ctx *c, double *th) {
   double h = c->hlo + ef_logis(p[4]) * (c->hhi - c->hlo);
   th[0] = p[0]; th[1] = exp(p[1]); th[2] = p[2]; th[3] = exp(p[3]);
-  th[4] = ef_interp(c->lh, c->lk, c->nl, h, 2); th[5] = h;
+  th[4] = arcef_interp(c->lh, c->lk, c->nl, h, 2); th[5] = h;
 }
 static double kq_obj(const double *p, const void *vc) {
   const kq_ctx *c = (const kq_ctx *)vc;
@@ -347,15 +351,15 @@ void arceqfit_k4eq_boot(const double *x, const double *y, const int *n, const do
     m0[i] = th[0] + th[1] * k4_F(x[i], th[2], th[3], th[4], th[5]);
     r0[i] = y[i] - m0[i];
   }
-  int bl = ef_blocklen(r0, N);
+  int bl = arcef_blocklen(r0, N);
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic) num_threads(ef_threads())
+#pragma omp parallel for schedule(dynamic) num_threads(arc_threads())
 #endif
   for (int b = 0; b < NB; b++) {
     double *yb = (double *)malloc((size_t)N * sizeof(double));
     if (yb) {
-      unsigned long long s = ef_seed(*seed, b);
-      ef_blockdraw(m0, r0, N, bl, &s, yb);
+      unsigned long long s = arcef_seed(*seed, b);
+      arcef_blockdraw(m0, r0, N, bl, &s, yb);
       kq_ctx c = { x, yb, N, lh, lk, *nl, *hlo, *hhi };
       double p1[5], f1, p2[5], f2;
       arck4_nmd(kq_obj, &c, 5, p0in, *maxit, p1, &f1);
@@ -372,7 +376,7 @@ void arceqfit_k4eq_boot(const double *x, const double *y, const int *n, const do
 
 /* ---- the exact score statistic of the manifold test: F of the residual regression on the six
  * Jacobian columns of the companion mean curve ---- */
-/* T from the residual e0 (length n) and the five columns D of ef_jac; the intercept is added here.
+/* T from the residual e0 (length n) and the five columns D of arcef_jac; the intercept is added here.
  * The projection is an orthogonalisation (Gram-Schmidt applied twice) of unit-scaled columns, so
  * the value does not depend on the scale of the columns and carries no ridge. Rank-deficient
  * Jacobians are refused: at a point whose mean curve is (near-)flat over the design the columns
@@ -418,7 +422,7 @@ static double ef_score_core(const double *e0, int n, const double *D, double *Qm
 static double ef_scoreF6(const double *x, const double *y, int n, const double *th,
                          double *wk /* 12n scratch */) {
   double *e0 = wk, *D = wk + n, *Qm = wk + 6 * (size_t)n;
-  ef_jac(x, n, th[2], th[3], th[4], th[5], D);
+  arcef_jac(x, n, th[2], th[3], th[4], th[5], EF_ZMIN, D);
   for (int i = 0; i < n; i++) e0[i] = y[i] - th[0] - th[1] * D[i];
   return ef_score_core(e0, n, D, Qm);
 }
@@ -466,7 +470,7 @@ static double ef_scoreF6p(const double *x, const double *y, int n,
     if (z > EF_ZMIN && z < 1.0 - EF_ZMIN) nin++;
   }
   if (nin < 12 || nin < n / 10) return NAN;
-  ef_jac(x, n, mu, sg, al, be, D);
+  arcef_jac(x, n, mu, sg, al, be, EF_ZMIN, D);
   if (!isfinite(ef_affine_resid(y, D, n, e0))) return NAN;
   return ef_score_core(e0, n, D, Qm);
 }
@@ -494,7 +498,7 @@ static double mf_T(const mf_ctx *c, double mu, double sg, double al) {
   if (!(mu >= c->xlo - 0.5 * R - tol) || !(mu <= c->xlo + 0.25 * R + tol)) return 1e10;
   if (!(sg >= 0.5 * R - tol) || !(sg <= 3.0 * R + tol)) return 1e10;
   if (!mf_overlap(c, mu, sg)) return 1e10;
-  double be = ef_interp(c->cal, c->cbe, c->nc, al, 1);
+  double be = arcef_interp(c->cal, c->cbe, c->nc, al, 1);
   if (!isfinite(be)) return 1e10;
   double v = ef_scoreF6p(c->x, c->y, c->n, mu, sg, al, be, c->wk);
   return isfinite(v) ? v : 1e10;
@@ -505,7 +509,7 @@ static double mf_sse(const mf_ctx *c, double mu, double sg, double al) {
   if (!(al >= c->alo) || !(al <= c->ahi)) return 1e30;
   if (!(mu >= c->xlo - 0.5 * R) || !(mu <= c->xlo + 0.25 * R)) return 1e30;
   if (!(sg >= 0.5 * R) || !(sg <= 3.0 * R) || !mf_overlap(c, mu, sg)) return 1e30;
-  double th[6] = { 0.0, 1.0, mu, sg, al, ef_interp(c->cal, c->cbe, c->nc, al, 1) };
+  double th[6] = { 0.0, 1.0, mu, sg, al, arcef_interp(c->cal, c->cbe, c->nc, al, 1) };
   if (!isfinite(th[5])) return 1e30;
   ef_mbc(c->x, c->n, th, c->wk + c->n, NULL);
   double v = ef_affine_resid(c->y, c->wk + c->n, c->n, c->wk);
@@ -779,7 +783,7 @@ void arceqfit_msim(const int *nM, const double *sde, const int *Rm, const int *s
   for (int i = 0; i < N; i++) x[i] = th0[2] + th0[3] * (double)i / (double)(N - 1);
   for (long i = 0; i < 8L * R; i++) out[i] = NAN;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic) num_threads(ef_threads())
+#pragma omp parallel for schedule(dynamic) num_threads(arc_threads())
 #endif
   for (int t = 0; t < 4 * R; t++) {
     int arm = t / R, r = t % R;
@@ -791,7 +795,7 @@ void arceqfit_msim(const int *nM, const double *sde, const int *Rm, const int *s
       double th2[6]; memcpy(th2, th0, sizeof(th2));
       th2[5] += shifts[arm];
       ef_mbc(x, N, th2, m, zb);
-      unsigned long long s = ef_seed(*seed + 1000 * arm, r);
+      unsigned long long s = arcef_seed(*seed + 1000 * arm, r);
       for (int i = 0; i < N; i++) y[i] = m[i] + (*sde) * ef_norm(&s);
       mf_ctx c = { x, y, N, cal, cbe, *nc, *alo, *ahi, x[0], x[N - 1] - x[0], wk };
       double T = ef_profmin(&c, st5, *maxit);
@@ -825,7 +829,7 @@ void arceqfit_score_at(const double *x, const double *y, const int *n, const dou
 /* entry: the moving-block length rule applied to a residual vector, exposed so the text can
  * quote the block length the bootstraps actually used. */
 void arceqfit_blocklen(const double *r, const int *n, int *out) {
-  *out = ef_blocklen(r, *n);
+  *out = arcef_blocklen(r, *n);
 }
 
 /* entry: null draws of the profiled statistic at one manifold point -- the truth arm of the
@@ -840,7 +844,7 @@ void arceqfit_nullT(const int *nM, const double *sde, const int *R2, const int *
   for (int i = 0; i < N; i++) x[i] = th0[2] + th0[3] * (double)i / (double)(N - 1);
   for (int r = 0; r < R; r++) out[r] = NAN;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic) num_threads(ef_threads())
+#pragma omp parallel for schedule(dynamic) num_threads(arc_threads())
 #endif
   for (int r = 0; r < R; r++) {
     double *y  = (double *)malloc((size_t)N * sizeof(double));
@@ -849,7 +853,7 @@ void arceqfit_nullT(const int *nM, const double *sde, const int *R2, const int *
     double *wk = (double *)malloc((size_t)N * 12 * sizeof(double));
     if (y && m && zb && wk) {
       ef_mbc(x, N, th0, m, zb);
-      unsigned long long s = ef_seed(*seed, r);
+      unsigned long long s = arcef_seed(*seed, r);
       for (int i = 0; i < N; i++) y[i] = m[i] + (*sde) * ef_norm(&s);
       mf_ctx c = { x, y, N, cal, cbe, *nc, *alo, *ahi, x[0], x[N - 1] - x[0], wk };
       out[r] = ef_profmin(&c, st5, *maxit);
@@ -926,14 +930,14 @@ void arceqfit_estsim(const double *a0, const double *b0, const int *R, const int
   long tot = (long)Rr * 3 * 2 * NN;
   for (long i = 0; i < tot; i++) out[i] = NAN;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic) num_threads(ef_threads())
+#pragma omp parallel for schedule(dynamic) num_threads(arc_threads())
 #endif
   for (int t = 0; t < Rr * NN; t++) {
     int ni = t / Rr, r = t % Rr, n = nsizes[ni];
     double *xs = (double *)malloc((size_t)n * sizeof(double));
     if (xs) {
-      unsigned long long s = ef_seed(*seed + 7000 * ni, r);
-      for (int i = 0; i < n; i++) xs[i] = ef_pbeta(ef_unif(&s), *a0, *b0);
+      unsigned long long s = arcef_seed(*seed + 7000 * ni, r);
+      for (int i = 0; i < n; i++) xs[i] = ef_pbeta(arcef_unif(&s), *a0, *b0);
       double st[2] = { -0.5, -0.3 };
       /* MLE */
       es_ctx c0 = { xs, n, 0, NULL, g200 };
@@ -1001,13 +1005,13 @@ void arceqfit_taus(const double *a0, const double *b0, const int *R, const int *
                    const int *seed, double *out) {
   int Rr = *R, N = *n;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic) num_threads(ef_threads())
+#pragma omp parallel for schedule(dynamic) num_threads(arc_threads())
 #endif
   for (int r = 0; r < Rr; r++) {
     double *xs = (double *)malloc((size_t)N * sizeof(double));
     if (xs) {
-      unsigned long long s = ef_seed(*seed, r);
-      for (int i = 0; i < N; i++) xs[i] = ef_pbeta(ef_unif(&s), *a0, *b0);
+      unsigned long long s = arcef_seed(*seed, r);
+      for (int i = 0; i < N; i++) xs[i] = ef_pbeta(arcef_unif(&s), *a0, *b0);
       qsort(xs, (size_t)N, sizeof(double), ef_cmp);
       double b0s = 0, b1s = 0, b2s = 0, b3s = 0;
       for (int i = 0; i < N; i++) {

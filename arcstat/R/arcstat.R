@@ -1139,6 +1139,7 @@ eqfit_bc <- function(x, y, starts, curve, maxit = 4000L){
 #' @rdname eqfit_bc
 #' @export
 eqfit_bc_boot <- function(x, y, th, curve, B = 30L, seed = 4207L, maxit = 2000L){
+  .arc_sync_threads()
   .C("arceqfit_bc_boot", as.double(x), as.double(y), as.integer(length(x)), as.double(th),
      as.integer(B), as.integer(seed), as.integer(maxit),
      as.double(curve[,1]), as.double(curve[,2]), as.integer(nrow(curve)),
@@ -1158,6 +1159,7 @@ eqfit_k4eq <- function(x, y, starts, locus, maxit = 4000L){
 #' @param p0 warm-start parameter vector for the bootstrap refits
 #' @export
 eqfit_k4eq_boot <- function(x, y, th, p0, locus, B = 25L, seed = 4207L, maxit = 2000L){
+  .arc_sync_threads()
   .C("arceqfit_k4eq_boot", as.double(x), as.double(y), as.integer(length(x)), as.double(th),
      as.double(p0), as.integer(B), as.integer(seed), as.integer(maxit),
      as.double(locus[,1]), as.double(locus[,2]), as.integer(nrow(locus)),
@@ -1172,6 +1174,7 @@ eqfit_k4eq_boot <- function(x, y, th, p0, locus, B = 25L, seed = 4207L, maxit = 
 #'   profiling alpha window \code{c(alo, ahi)}
 #' @export
 eqfit_msim <- function(nM, sde, Rm, th0, st5, curve, awin, thref, seed = 4207L, maxit = 2000L){
+  .arc_sync_threads()
   stopifnot(is.matrix(thref), nrow(thref) == 3L, ncol(thref) == 4L)
   r <- .C("arceqfit_msim", as.integer(nM), as.double(sde), as.integer(Rm), as.integer(seed),
           as.double(th0), as.double(st5), as.integer(maxit),
@@ -1198,6 +1201,7 @@ eqfit_blocklen <- function(res){
 #' @rdname eqfit_bc
 #' @export
 eqfit_nullT <- function(nM, sde, R2, th0, st5, curve, awin, seed = 4207L, maxit = 2000L){
+  .arc_sync_threads()
   .C("arceqfit_nullT", as.integer(nM), as.double(sde), as.integer(R2), as.integer(seed),
      as.double(th0), as.double(st5), as.integer(maxit),
      as.double(curve[,1]), as.double(curve[,2]), as.integer(nrow(curve)),
@@ -1207,6 +1211,7 @@ eqfit_nullT <- function(nM, sde, R2, th0, st5, curve, awin, seed = 4207L, maxit 
 #' @param a0,b0 beta parameters of the sampled member
 #' @export
 eqfit_estsim <- function(a0, b0, R, nsizes, seed = 4207L, maxit = 500L){
+  .arc_sync_threads()
   nn <- length(nsizes)
   r <- .C("arceqfit_estsim", as.double(a0), as.double(b0), as.integer(R),
           as.integer(nsizes), as.integer(nn), as.integer(seed), as.integer(maxit),
@@ -1223,6 +1228,7 @@ k4_b_sweep <- function(k, h){
 #' @rdname eqfit_bc
 #' @export
 eqfit_taus <- function(a0, b0, R, n, seed = 4207L){
+  .arc_sync_threads()
   r <- .C("arceqfit_taus", as.double(a0), as.double(b0), as.integer(R), as.integer(n),
           as.integer(seed), out = double(4 * R))$out
   cbind(t3 = r[1:R], t4 = r[R + 1:R], al = r[2*R + 1:R], be = r[3*R + 1:R])
@@ -1246,12 +1252,14 @@ eq_E_sweep <- function(alpha, betas){
 #'
 #' All eight pipelines report the standard tangent reading from the same trace: the
 #' variable-projection least-squares fit with its GEV submodel selection (\code{LS}), running
-#' medians of window nine and twenty-one followed by transformed-parameter NLS
+#' medians of window nine and twenty-one followed by least squares of the curve without drift
 #' (\code{med9-LS}, \code{med21-LS}), the banded arc-length estimator (\code{arc}), the GEV
 #' submodel in its own right (\code{GEV-LS}), the selection fit past the run's measured
 #' transient cutoff (\code{transient-excised}), and the selection fit on each half-density
-#' index grid (\code{grid-odd}, \code{grid-even}). Replicates start from the base fit;
-#' point estimates use the full start grid. Resampling indices come from per-replicate
+#' index grid (\code{grid-odd}, \code{grid-even}). Every pipeline searches the box
+#' \code{bounds}, with \eqn{h} itself as the coordinate and starts on both sides of zero, so pass
+#' the box of the run's own point fit. Point estimates use the full start grid; a replicate starts
+#' from its pipeline's own point fit. Resampling indices come from per-replicate
 #' splitmix64 streams, so the result is identical whatever the OpenMP thread count and
 #' identical between the R and Python fronts.
 #'
@@ -1266,6 +1274,7 @@ eq_E_sweep <- function(alpha, betas){
 #' @export
 k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
                        bounds = c(-0.98, 0.95, 0, 4), maxit = 1500L){
+  .arc_sync_threads()
   n <- length(x); stopifnot(length(y) == n, B >= 0)
   r <- .C("arck4_mv_boot", as.double(x), as.double(y), as.integer(n),
           as.double(if (is.finite(cut)) cut else -1e300), as.integer(B),
@@ -1284,7 +1293,7 @@ k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
 #' Fits \eqn{y = g_0 + m x + g_1 F(x;\mu,\sigma,k,h)}. The mean curve is linear in the three
 #' coefficients, so they are solved exactly for any shape and only the four shape parameters are
 #' searched; the multi-start is run in the C back end, in parallel over starts, and the best is
-#' chosen serially so the answer does not depend on the thread count.
+#' chosen serially so the answer does not depend on the thread count (see \code{\link{arc_threads}}).
 #' @param x,y the curve.
 #' @param starts a matrix with four columns, \code{(mu, log sigma, k, h)}, one row per start; h is carried directly so negative values are admissible.
 #' @param maxit iterations per Nelder-Mead descent.
@@ -1303,6 +1312,7 @@ k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
 #' @export
 k4_fit_varpro <- function(x, y, starts, maxit = 1500L,
                           bounds = c(-0.98, 0.95, 0, 4), hfix = NA_real_) {
+  .arc_sync_threads()
   starts <- as.matrix(starts)
   stopifnot(ncol(starts) == 4L, length(bounds) == 4L,
             bounds[1] < bounds[2], bounds[3] < bounds[4])
@@ -1443,4 +1453,223 @@ arcc_gof <- function(theta, fit, B = 999L, seed = 4207L){
   o <- .C(C_arcc_gof, as.double(theta), as.integer(length(theta)), as.double(fit$c3),
           as.double(fit$mu), as.integer(B), as.integer(seed), out = double(2))$out
   list(stat = o[1], p = o[2])
+}
+
+## ================= threads ============================================================
+
+.arc_sync_threads <- function() {
+  n <- getOption("arcstat.threads", 0L)
+  n <- if (is.numeric(n) && length(n) == 1L && is.finite(n) && n >= 1) as.integer(n) else 0L
+  .C(C_arc_set_threads, n, now = integer(1))$now
+}
+
+#' Number of threads used by the back end
+#'
+#' Every parallel loop of the package uses the same number of threads: the option
+#' \code{arcstat.threads} if it is set, otherwise the environment variable \code{ARCSTAT_THREADS},
+#' otherwise at most two. Results do not depend on the number.
+#' @param n a positive integer to set the option, \code{NULL} to clear it; missing only asks.
+#' @return the number of threads in force (1 where the package was built without OpenMP), invisibly
+#'   when it was set.
+#' @examples
+#' arc_threads()
+#' @export
+arc_threads <- function(n) {
+  if (missing(n)) return(.arc_sync_threads())
+  stopifnot(is.null(n) || (is.numeric(n) && length(n) == 1L && is.finite(n) && n >= 1))
+  options(arcstat.threads = if (is.null(n)) NULL else as.integer(n))
+  invisible(.arc_sync_threads())
+}
+
+## ================= fits and bootstraps over many runs ==================================
+
+## one run as two vectors, or many as two lists: concatenated, with offsets
+.arc_runs <- function(x, y) {
+  if (!is.list(x)) x <- list(x)
+  if (!is.list(y)) y <- list(y)
+  n <- lengths(x)
+  stopifnot(length(x) == length(y), length(x) >= 1L, all(n == lengths(y)), all(n >= 8L))
+  X <- as.double(unlist(x, use.names = FALSE)); Y <- as.double(unlist(y, use.names = FALSE))
+  if (any(!is.finite(X)) || any(!is.finite(Y))) stop("x and y must be finite")
+  list(X = X, Y = Y, off = as.integer(c(0, cumsum(n))), R = length(n), names = names(x))
+}
+.arc_locus <- function(locus) {
+  if (is.null(locus)) return(list(np = 0L, h = 0, k = 0, off = 0L))
+  if (!is.list(locus) || is.data.frame(locus)) locus <- list(locus)
+  locus <- lapply(locus, function(m) { m <- as.matrix(m)
+    stopifnot(ncol(m) == 2L, nrow(m) >= 2L, all(is.finite(m)))
+    m <- m[order(m[, 1]), , drop = FALSE]
+    if (any(diff(m[, 1]) <= 0)) stop("the h of a locus table must be distinct")
+    m })
+  list(np = length(locus), h = as.double(unlist(lapply(locus, function(m) m[, 1]))),
+       k = as.double(unlist(lapply(locus, function(m) m[, 2]))),
+       off = as.integer(c(0, cumsum(vapply(locus, nrow, 1L)))))
+}
+
+#' The equivalence locus of the four-parameter kappa family
+#'
+#' For every \eqn{h<1/2} there is one \eqn{k} at which the tangent reading and the third-derivative
+#' reading coincide. The locus is a single curve through \eqn{h=0}; it tends to the corner
+#' \eqn{(h,k)=(1/2,1)}, and for \eqn{h<0} it approaches the frontier \eqn{hk=1/2} from inside,
+#' exponentially fast in \eqn{h}: below \eqn{h} of about \eqn{-15} the value returned is the double
+#' nearest to \eqn{1/(2h)}.
+#' @param h shape values.
+#' @return the \eqn{k} of each, \code{NaN} where \eqn{h\ge 1/2}.
+#' @examples
+#' k <- k4_locus_k(c(-1, 0, 0.3))
+#' r <- k4_readings(c(0, 1, 0, 1, k[3], 0.3))
+#' r[["a"]] - r[["b"]]
+#' @export
+k4_locus_k <- function(h)
+  .C(C_arcbt_locus_k, as.double(h), as.integer(length(h)), k = double(length(h)), NAOK = TRUE)$k
+
+#' Equivalence-constrained kappa fits with drift, many runs in one call
+#'
+#' Fits \eqn{y = g_0 + m x + g_1 F(x;\mu,\sigma,k,h)} with \eqn{(h,k)} held on the equivalence locus,
+#' so that the two standard readings coincide. The linear part \eqn{(g_0,m,g_1)} is solved exactly at
+#' every trial shape; \eqn{(\mu,\log\sigma,h)} is searched by Levenberg--Marquardt from a grid of
+#' starts, the best of which are carried to convergence and polished by a simplex. The starts of all
+#' runs share one pool of threads (\code{\link{arc_threads}}); results do not depend on the number.
+#'
+#' No fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the reading are
+#' the caller's to judge; a caller who gates the free fit in that way must gate both fits, or a ratio
+#' of the two sums of squares can fall below one.
+#' @param x,y one run as two vectors, or many runs as two lists of vectors.
+#' @param locus \code{NULL} for the whole locus, computed inside (\code{\link{k4_locus_k}}); or a
+#'   two-column matrix \code{(h, k)}, or a list of such matrices (pieces), interpolated linearly and
+#'   not extrapolated. An interpolated table puts a kink in the objective at each of its nodes; all
+#'   nodes are scanned, so the best one is found, but the fit is then a property of the table.
+#' @param bounds the box \code{(k_lo, k_hi, h_lo, h_hi)} the shape must lie in.
+#' @param it1,it2 Levenberg--Marquardt steps per start, and for the best starts.
+#' @param keep how many distinct best starts of each run are carried to convergence.
+#' @return a list: \code{fit}, a matrix with one row per run and columns \code{g0, m, g1, mu, sigma,
+#'   k, h, rss, a, b} and \code{piece} (the table piece chosen; for the whole locus, which is
+#'   searched from both sides of zero, 1 for \eqn{h\le 0} and 2 for \eqn{h\ge 0}); \code{a} and
+#'   \code{b} are the two readings of the fitted shape, whatever the sign of \code{g1}; and
+#'   \code{pieces}, the best fit on every piece in the same columns (runs by columns by pieces), from
+#'   which a caller can take the best one that is acceptable on other grounds.
+#' @examples
+#' x <- seq(0, 20, length.out = 150)
+#' y <- 1 + 0.2 * x + 300 * k4_cdf(x, 9, 2, k4_locus_k(0.2), 0.2) + sin(4321 * seq_along(x))
+#' f <- k4eq_fit(x, y)
+#' f$fit[1, c("k", "h", "rss", "a", "b")]
+#' @export
+k4eq_fit <- function(x, y, locus = NULL, bounds = c(-0.98, 0.95, -60, 4),
+                     it1 = 12L, it2 = 150L, keep = 6L) {
+  d <- .arc_runs(x, y); L <- .arc_locus(locus); np <- if (L$np > 0L) L$np else 2L
+  stopifnot(length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4], keep >= 1L)
+  .arc_sync_threads()
+  r <- .C(C_arcbt_k4eq, d$X, d$Y, d$off, d$R, L$np, L$h, L$k, L$off, as.double(bounds),
+          as.integer(it1), as.integer(it2), as.integer(keep),
+          out = double(11 * d$R), p = double(11 * np * d$R), NAOK = TRUE)
+  nm <- c("g0", "m", "g1", "mu", "sigma", "k", "h", "rss", "a", "b", "piece")
+  list(fit = matrix(r$out, d$R, 11, byrow = TRUE, dimnames = list(d$names, nm)),
+       pieces = aperm(array(r$p, c(11L, np, d$R), list(nm, NULL, d$names)), c(3L, 1L, 2L)))
+}
+
+#' Beta-companion fits with drift, free and equivalence-constrained, many runs in one call
+#'
+#' Fits \eqn{y = g_0 + m x + g_1 F((x-s)/w;\alpha,\beta)}, \eqn{F} the inverse of the regularised
+#' incomplete beta function with parameters \eqn{\alpha+1,\beta+1}, once with \eqn{\alpha,\beta} free
+#' in \eqn{[-1+10^{-6}, 20]} and once with \eqn{\beta} on the equivalence curve. \eqn{F} is exactly 0
+#' and 1 off the support. The method is that of \code{\link{k4eq_fit}}. The constrained optimum is a
+#' point of the free family and is also a start of the free fit, so the constrained sum of squares is
+#' never below the free one.
+#' @inheritParams k4eq_fit
+#' @param curve a two-column matrix \code{(alpha, beta)} of the equivalence curve, increasing in
+#'   alpha, interpolated linearly; alpha is held inside it. See \code{\link{eq_bstar}}.
+#' @return a list of two matrices, \code{free} and \code{con}, with one row per run and columns
+#'   \code{g0, m, g1, s, w, alpha, beta, rss, a, b}; \code{a} and \code{b} are the two readings.
+#' @examples
+#' curve <- cbind(a <- seq(-0.62, -0.51, length.out = 12), sapply(a, eq_bstar))
+#' x <- seq(0, 20, length.out = 120)
+#' y <- 2 + 0.1 * x + 250 * bc_cdf((x - 1) / 17 * beta(0.4, 0.6), -0.6, -0.4) + cos(999 * x)
+#' h <- bc_host_fit(x, y, curve)
+#' h$con[, "rss"] / h$free[, "rss"]
+#' @export
+bc_host_fit <- function(x, y, curve, it1 = 15L, it2 = 200L, keep = 6L) {
+  d <- .arc_runs(x, y); curve <- as.matrix(curve)
+  stopifnot(ncol(curve) == 2L, nrow(curve) >= 2L, all(is.finite(curve)), all(diff(curve[, 1]) > 0))
+  .arc_sync_threads()
+  r <- .C(C_arcbt_host, d$X, d$Y, d$off, d$R, as.double(curve[, 1]), as.double(curve[, 2]),
+          nrow(curve), as.integer(it1), as.integer(it2), as.integer(keep),
+          f = double(10 * d$R), c = double(10 * d$R), NAOK = TRUE)
+  nm <- list(d$names, c("g0", "m", "g1", "s", "w", "alpha", "beta", "rss", "a", "b"))
+  list(free = matrix(r$f, d$R, 10, byrow = TRUE, dimnames = nm),
+       con  = matrix(r$c, d$R, 10, byrow = TRUE, dimnames = nm))
+}
+
+.arc_seeds <- function(seed, R) {
+  if (length(seed) == 1L) seed <- seed + seq_len(R) - 1L
+  stopifnot(length(seed) == R, all(is.finite(seed)))
+  as.integer(seed)
+}
+.arc_bootarr <- function(v, B, R, cols, runs)
+  aperm(array(v, c(length(cols), B, R), list(cols, NULL, runs)), c(2L, 1L, 3L))
+
+#' Residual bootstraps of kappa fits with drift, many runs in one call
+#'
+#' \code{k4_boot} resamples the residuals of a fitted free kappa curve in moving blocks and refits it
+#' by \code{\link{k4_fit_varpro}} from the fitted shape, each run in its own box and, where the point
+#' fit is the generalised extreme value submodel, with \eqn{h} held at zero. \code{k4eq_boot} does the
+#' same for a fit of \code{\link{k4eq_fit}}, refitted on the piece of the locus it lies on. Replicate
+#' \eqn{b} of a run draws from its own stream, determined by the run's seed and \eqn{b} alone, so the
+#' result does not depend on the number of threads or on which other runs are in the call.
+#'
+#' The block length is the first lag at which the residual autocorrelation is inside
+#' \eqn{\pm 2/\sqrt n} (at least 2; \eqn{n^{1/3}} if none of the first 200 is); \code{block = 1}
+#' resamples singly and any larger value fixes the length.
+#' @inheritParams k4eq_fit
+#' @param fit a matrix with one row per run whose columns \code{g0, m, g1, mu, sigma, k, h} are the
+#'   fit (for \code{k4eq_boot} the \code{fit} of \code{\link{k4eq_fit}}, with its \code{piece}).
+#' @param box a matrix with one row per run, or one row for all: the box \code{(k_lo, k_hi, h_lo,
+#'   h_hi)} of the run's own point fit.
+#' @param gev logical, one per run: the point fit holds \eqn{h = 0}.
+#' @param B replicates.
+#' @param seed one seed per run, or one for all, in which case run \eqn{r} uses \code{seed + r - 1}.
+#' @param block 0 for the block length of the residual autocorrelation, 1 for single resampling, or
+#'   a block length.
+#' @param maxit,it2 Nelder--Mead iterations per pass of a free refit; Levenberg--Marquardt steps of a
+#'   constrained one.
+#' @return a list: \code{boot}, an array of \code{B} rows by columns by runs. The columns are the two
+#'   readings \code{a} and \code{b}, the fitted \code{k} and \code{h}, and for \code{k4_boot} also
+#'   \code{sel}, 1 if \eqn{n\log(rss_0/rss)-2<0} would choose \eqn{h=0} on that replicate and
+#'   \code{NaN} where \eqn{h} is held; and \code{block}, the block length of every run.
+#' @examples
+#' x <- seq(0, 20, length.out = 120)
+#' y <- 1 + 300 * k4_cdf(x, 9, 2, -0.3, 0.2) + sin(4321 * seq_along(x))
+#' f <- k4_fit_varpro(x, y, rbind(c(9, log(2), -0.3, 0.2)), bounds = c(-0.98, 0.95, -60, 4))
+#' fit <- rbind(c(f$theta[1], f$drift, f$theta[2:6]))
+#' b <- k4_boot(x, y, fit, box = c(-0.98, 0.95, -60, 4), B = 5)
+#' b$boot[, c("a", "b"), 1]
+#' @export
+k4_boot <- function(x, y, fit, box, gev = FALSE, B = 400L, seed = 4207L, block = 0L, maxit = 800L) {
+  d <- .arc_runs(x, y)
+  fit <- matrix(as.double(as.matrix(fit)[, 1:7, drop = FALSE]), nrow = d$R)
+  box <- if (is.matrix(box)) box else matrix(box, 1L)
+  if (nrow(box) == 1L) box <- box[rep(1L, d$R), , drop = FALSE]
+  stopifnot(ncol(box) == 4L, nrow(box) == d$R, B >= 1L, block >= 0L)
+  .arc_sync_threads()
+  r <- .C(C_arcbt_k4_boot, d$X, d$Y, d$off, d$R, as.double(t(fit)), as.double(t(box)),
+          as.integer(rep_len(as.logical(gev), d$R)), as.integer(B), .arc_seeds(seed, d$R),
+          as.integer(block), as.integer(maxit), bl = integer(d$R),
+          out = double(5 * B * d$R), NAOK = TRUE)
+  list(boot = .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h", "sel"), d$names), block = r$bl)
+}
+#' @rdname k4_boot
+#' @export
+k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), B = 400L,
+                      seed = 4207L, block = 0L, it2 = 100L) {
+  d <- .arc_runs(x, y); L <- .arc_locus(locus)
+  fit <- as.matrix(fit)
+  stopifnot(nrow(fit) == d$R, ncol(fit) >= 7L, length(bounds) == 4L, B >= 1L, block >= 0L)
+  piece <- if (L$np == 0L) rep(1L, d$R) else if ("piece" %in% colnames(fit)) fit[, "piece"] else
+    stop("with a locus table `fit` needs its `piece` column")
+  stopifnot(L$np == 0L || all(piece >= 1 & piece <= L$np))
+  .arc_sync_threads()
+  r <- .C(C_arcbt_k4eq_boot, d$X, d$Y, d$off, d$R, as.double(t(fit[, 1:7, drop = FALSE])),
+          as.integer(piece), L$np, L$h, L$k, L$off, as.double(bounds), as.integer(B),
+          .arc_seeds(seed, d$R), as.integer(block), as.integer(it2), bl = integer(d$R),
+          out = double(4 * B * d$R), NAOK = TRUE)
+  list(boot = .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h"), d$names), block = r$bl)
 }

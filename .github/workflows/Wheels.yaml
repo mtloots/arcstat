@@ -5,10 +5,9 @@
 # a PyPI release and let it produce the artefacts; the sdist alone would work but forces every
 # user to have a compiler.
 #
-# Linux and macOS only, matching the packages' own classifiers. The C carries #pragma omp in three
-# files but the Python build does NOT pass -fopenmp, so those loops run serially here and there is
-# no libomp to bundle -- which is why this needs no delocate/auditwheel gymnastics beyond the
-# defaults. Windows is untested and deliberately not claimed.
+# Linux and macOS only, matching the packages' own classifiers. setup.py passes -fopenmp on
+# Linux (since arcstat 0.3.2.dev2), where auditwheel bundles libgomp; on macOS it does not, so those
+# wheels run serially and there is no libomp to bundle. Windows is untested and deliberately not claimed.
 name: wheels
 
 on:

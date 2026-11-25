@@ -310,3 +310,82 @@ def test_companion_keeps_accuracy_near_beta_minus_one():
     for be in (-0.9999, -0.6, -0.03):
         for u in (1e-12, 0.01, 0.6, 0.9):
             assert abs(a.bc_cdf(a.bc_q([u], -0.6, be), -0.6, be)[0] / u - 1) < 1e-10
+
+
+def _mix(z):
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & 0xFFFFFFFFFFFFFFFF
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & 0xFFFFFFFFFFFFFFFF
+    return z ^ (z >> 31)
+
+
+def _block_replicate(m, r, bl, seed, b):
+    """The moving-block replicate b of arcstat, written out from its definition."""
+    M = 0xFFFFFFFFFFFFFFFF
+    s = _mix(((seed * 0x9E3779B97F4A7C15) & M) ^ (((b + 1) * 0xBF58476D1CE4E5B9) & M))
+    y = []
+    while len(y) < len(m):
+        s = (s + 0x9E3779B97F4A7C15) & M
+        i0 = int((_mix(s) >> 11) / 9007199254740992.0 * (len(m) - bl + 1))
+        for i in range(bl):
+            if len(y) < len(m):
+                y.append(m[len(y)] + r[i0 + i])
+    return y
+
+
+def test_kappa_bootstrap_is_the_refit_of_its_stated_replicate():
+    n = 100
+    x = [20 * i / (n - 1) for i in range(n)]
+    F = a.k4_cdf(x, 9, 2, -0.3, -0.2)
+    y = [1 + 0.2 * x[i] + 300 * F[i] + 3 * math.sin(0.4 * i) + math.sin(4321 * i) for i in range(n)]
+    box = (-0.98, 0.95, -8, 4)
+    v = a.k4_fit_varpro(x, y, [(9, math.log(2), -0.3, -0.2)], bounds=box)
+    fit = [v[0], v[1], v[2], v[3], v[4], v[5], v[6]]
+    G = a.k4_cdf(x, *fit[3:])
+    m = [fit[0] + fit[1] * x[i] + fit[2] * G[i] for i in range(n)]
+    r = [y[i] - m[i] for i in range(n)]
+    for gev in (False, True):
+        boot, bl = a.k4_boot(x, y, [fit], box, gev=gev, B=4, seed=31)
+        assert bl[0] == a.eqfit_blocklen(r)
+        for b in range(4):
+            yb = _block_replicate(m, r, bl[0], 31, b)
+            st = [(fit[3], math.log(fit[4]), fit[5], 0.0 if gev else fit[6])]
+            o = a.k4_fit_varpro(x, yb, st, 800, box, 0.0 if gev else None)
+            rd = a.k4_readings([o[0], o[2], o[3], o[4], o[5], o[6]])
+            assert boot[0][b][0] == rd[0] and boot[0][b][2:4] == o[5:7]
+            assert boot[0][b][1] == rd[1] or (math.isnan(rd[1]) and math.isnan(boot[0][b][1]))
+            if gev:
+                assert math.isnan(boot[0][b][4])
+            else:
+                g = a.k4_fit_varpro(x, yb, [st[0][:3] + (0.0,)], 800, box, 0.0)
+                assert boot[0][b][4] == float(n * math.log(g[7] / o[7]) - 2 < 0)
+
+
+def test_constrained_bootstrap_agrees_with_a_full_refit():
+    n = 100
+    x = [20 * i / (n - 1) for i in range(n)]
+    F = a.k4_cdf(x, 9, 2, a.k4_locus_k([0.2])[0], 0.2)
+    y = [1 + 0.2 * x[i] + 300 * F[i] + math.sin(4321 * i) for i in range(n)]
+    f, pieces = a.k4eq_fit(x, y)
+    p = f[0]
+    assert min(q[7] for q in pieces[0]) == p[7]
+    G = a.k4_cdf(x, *p[3:7])
+    m = [p[0] + p[1] * x[i] + p[2] * G[i] for i in range(n)]
+    r = [y[i] - m[i] for i in range(n)]
+    boot, bl = a.k4eq_boot(x, y, f, B=3, seed=8)
+    for b in range(3):
+        g = a.k4eq_fit(x, _block_replicate(m, r, bl[0], 8, b))[0][0]
+        assert abs(g[8] - boot[0][b][0]) < 1e-5
+
+
+def test_threads():
+    n = a.get_threads()
+    assert n >= 1
+    assert a.set_threads(5) in (1, 5)
+    assert a.set_threads(None) == n
+
+
+def test_locus_against_high_precision_readings():
+    # discrepancy of the two readings evaluated from their definitions at 40 digits: zero to 1e-15 in k
+    for h, k in ((-8.0, -0.06249674542089948), (-3.0, -0.16228952021548154), (0.0, -0.12306932718098818),
+                 (0.45, 0.9321745480804188), (0.49, 0.9890420763756562)):
+        assert abs(a.k4_locus_k([h])[0] - k) < 4e-15

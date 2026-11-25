@@ -108,7 +108,7 @@ jobs:
       - name: Run every parity harness
         run: |
           set -e
-          for h in parity_arccirc.sh parity_eq2.sh parity_eqfit.sh parity_k4.sh parity_mv.sh parity_vc.sh; do
+          for h in parity_arccirc.sh parity_eq2.sh parity_eqfit.sh parity_k4.sh parity_mv.sh parity_vc.sh parity_batch.sh; do
             echo "=== $h"
             sh "$h" arcstat arcstat-py
           done

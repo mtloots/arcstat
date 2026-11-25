@@ -15,8 +15,34 @@ it is not part of the Python front.
 """
 import glob
 import os
+import sys
 
 from setuptools import Extension, setup
+from setuptools.command.build_ext import build_ext
+
+
+class BuildExt(build_ext):
+    """Build with OpenMP where the compiler has it (gcc on Linux), and without otherwise. The results
+    are the same; only the thread setting then has no effect. On macOS it is off unless
+    ARCSTAT_LIBOMP names a libomp prefix, so that a wheel never depends on a local library."""
+
+    def build_extension(self, ext):
+        prefix = os.environ.get("ARCSTAT_LIBOMP")
+        plain = (list(ext.extra_compile_args), list(ext.extra_link_args))
+        if sys.platform.startswith("linux"):
+            ext.extra_compile_args = plain[0] + ["-fopenmp"]
+            ext.extra_link_args = plain[1] + ["-fopenmp"]
+        elif sys.platform == "darwin" and prefix:
+            ext.extra_compile_args = plain[0] + ["-Xpreprocessor", "-fopenmp", "-I" + prefix + "/include"]
+            ext.extra_link_args = plain[1] + ["-L" + prefix + "/lib", "-lomp"]
+        try:
+            super().build_extension(ext)
+        except Exception:
+            if ext.extra_compile_args == plain[0]:
+                raise
+            ext.extra_compile_args, ext.extra_link_args = plain
+            super().build_extension(ext)
+
 
 # Paths must be RELATIVE to setup.py: setuptools rejects absolute source paths outright
 # ("setup script specifies an absolute path"), and a relative path is what ends up in the sdist.
@@ -37,4 +63,4 @@ ext = Extension(
     optional=False,
 )
 
-setup(ext_modules=[ext])
+setup(ext_modules=[ext], cmdclass={"build_ext": BuildExt})

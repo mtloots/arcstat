@@ -10,7 +10,8 @@
  * The remaining cost is the multi-start, which is embarrassingly parallel: each start is an
  * independent Nelder-Mead descent. The starts are run under OpenMP, each writing only its own slot,
  * and the best is chosen afterwards in a SERIAL pass, so the result does not depend on the thread
- * count or on the order of completion. Thread count is capped at two, per CRAN policy.
+ * count or on the order of completion. The thread count is arc_threads(): two
+ * unless the user asks for more.
  */
 /* Floating-point contraction is pinned OFF so that the R and Python fronts, which compile these
    sources with different flags, cannot differ in whether multiply-add pairs are fused. Without
@@ -32,13 +33,8 @@
 #include <omp.h>
 #endif
 #include "arck4.h"
+#include "arcthreads.h"
 
-#ifdef _OPENMP
-static int ak_threads(void) {                 /* only referenced from the parallel region */
-  int t = omp_get_max_threads();
-  return t > 2 ? 2 : (t < 1 ? 1 : t);        /* CRAN allows at most two */
-}
-#endif
 
 /* Solve the 3x3 normal equations for (g0, m, g1) against columns (1, x, F) and return the residual
  * sum of squares. Symmetric positive definite in the non-degenerate case; a ridge of last resort
@@ -174,7 +170,7 @@ void arck4_fit_varpro(const double *x, const double *y, const int *n, const doub
   for (int s = 0; s < S; s++) bestf[s] = HUGE_VAL;
 
 #ifdef _OPENMP
-#pragma omp parallel num_threads(ak_threads())
+#pragma omp parallel num_threads(arc_threads())
 #endif
   {
     double *Fb = (double *)malloc((size_t)N * sizeof(double));

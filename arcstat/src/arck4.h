@@ -36,6 +36,9 @@ void arck4_fit_nls(const double *x, const double *y, const int *n,
 void arck4_fit_nalr(const double *x, const double *y, const int *n, const int *J,
                     const double *lambda, const int *w, const double *p,
                     const double *start, double *out);
+void arck4_fit_nalr_box(const double *x, const double *y, const int *n, const int *J,
+                        const double *lambda, const int *w, const double *p, const double *bnd,
+                        const double *start, double *out);
 typedef double (*objfn)(const double *, const void *);
 void arck4_nmd(objfn f, const void *ctx, int d, const double *start, int maxit,
                double *xout, double *fout);

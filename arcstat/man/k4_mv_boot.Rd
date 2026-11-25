@@ -35,12 +35,14 @@ k4_mv_boot(
 \description{
 All eight pipelines report the standard tangent reading from the same trace: the
 variable-projection least-squares fit with its GEV submodel selection (\code{LS}), running
-medians of window nine and twenty-one followed by transformed-parameter NLS
+medians of window nine and twenty-one followed by least squares of the curve without drift
 (\code{med9-LS}, \code{med21-LS}), the banded arc-length estimator (\code{arc}), the GEV
 submodel in its own right (\code{GEV-LS}), the selection fit past the run's measured
 transient cutoff (\code{transient-excised}), and the selection fit on each half-density
-index grid (\code{grid-odd}, \code{grid-even}). Replicates start from the base fit;
-point estimates use the full start grid. Resampling indices come from per-replicate
+index grid (\code{grid-odd}, \code{grid-even}). Every pipeline searches the box
+\code{bounds}, with \eqn{h} itself as the coordinate and starts on both sides of zero, so pass
+the box of the run's own point fit. Point estimates use the full start grid; a replicate starts
+from its pipeline's own point fit. Resampling indices come from per-replicate
 splitmix64 streams, so the result is identical whatever the OpenMP thread count and
 identical between the R and Python fronts.
 }

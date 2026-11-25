@@ -40,5 +40,5 @@ a list with \code{theta} in the six-vector convention \code{(g0, g1, mu, sg, k, 
 Fits \eqn{y = g_0 + m x + g_1 F(x;\mu,\sigma,k,h)}. The mean curve is linear in the three
 coefficients, so they are solved exactly for any shape and only the four shape parameters are
 searched; the multi-start is run in the C back end, in parallel over starts, and the best is
-chosen serially so the answer does not depend on the thread count.
+chosen serially so the answer does not depend on the thread count (see \code{\link{arc_threads}}).
 }

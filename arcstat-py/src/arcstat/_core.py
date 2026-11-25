@@ -46,8 +46,21 @@ def _compile_from_source():
     ext = "dll" if _sys.platform == "win32" else ("dylib" if _sys.platform == "darwin" else "so")
     out = _os.path.join(_cache_dir(), "libarcstat." + ext)
     cc = _os.environ.get("CC") or "cc"
+    base = [cc, "-O2", "-fPIC", "-shared", "-I", _here] + srcs + ["-lm", "-o", out]
+    # with OpenMP where the compiler has it, so that the thread setting does something; the results
+    # are the same either way
+    if _sys.platform == "darwin":
+        omp = []
+        for d in ("/opt/homebrew/opt/libomp", "/usr/local/opt/libomp"):
+            if _os.path.isdir(d):
+                omp = ["-Xpreprocessor", "-fopenmp", "-I" + d + "/include", "-L" + d + "/lib", "-lomp"]
+                break
+    else:
+        omp = ["-fopenmp"]
     try:
-        _sp.check_call([cc, "-O2", "-fPIC", "-shared", "-I", _here] + srcs + ["-lm", "-o", out])
+        if omp and _sp.call(base + omp, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL) == 0:
+            return out
+        _sp.check_call(base)
     except (OSError, _sp.CalledProcessError) as exc:
         raise ImportError(
             "arcstat could not build its C back-end from the bundled sources (%s). "
@@ -592,6 +605,136 @@ def eq_E_sweep(alpha, betas):
     out = (_ct.c_double * len(betas))()
     _lib.arceqfit_Esweep(_d1(alpha), _vec(betas), _i(len(betas)), out)
     return list(out)
+
+_lib.arc_set_threads.argtypes = [_ip, _ip]
+def set_threads(n=None):
+    """Number of threads for every parallel loop of the back end. An integer sets it, None clears the
+    setting, which leaves the environment variable ARCSTAT_THREADS and then at most two. Returns the
+    number in force (1 where the library was built without OpenMP). Results do not depend on it."""
+    if n is not None and not 1 <= int(n) <= 1024:
+        raise ValueError("n must be between 1 and 1024")
+    now = _i(0)
+    _lib.arc_set_threads(_i(0 if n is None else n), now)
+    return now[0]
+
+def get_threads():
+    """The number of threads in force; see set_threads."""
+    now = _i(0)
+    _lib.arc_set_threads(_i(-1), now)
+    return now[0]
+
+def _runs(x, y):
+    """One run as two sequences of numbers, or many as two sequences of sequences."""
+    try:
+        len(x[0])
+    except TypeError:
+        x, y = [x], [y]
+    if len(x) != len(y) or any(len(a) != len(b) or len(a) < 8 for a, b in zip(x, y)):
+        raise ValueError("x and y must match, with at least eight points per run")
+    off = [0]
+    for a in x:
+        off.append(off[-1] + len(a))
+    return ([float(v) for a in x for v in a], [float(v) for b in y for v in b], off, len(x))
+
+def _locus(locus):
+    if locus is None:
+        return 0, [0.0], [0.0], [0]
+    try:
+        len(locus[0][0])
+    except TypeError:
+        locus = [locus]
+    h, k, off = [], [], [0]
+    for m in locus:
+        m = sorted((float(r[0]), float(r[1])) for r in m)
+        if len(m) < 2 or any(b[0] <= a[0] for a, b in zip(m, m[1:])):
+            raise ValueError("each locus table needs at least two rows with distinct h")
+        h += [r[0] for r in m]; k += [r[1] for r in m]; off.append(len(h))
+    return len(locus), h, k, off
+
+def _rows(v, nc):
+    return [list(v[i:i + nc]) for i in range(0, len(v), nc)]
+
+_lib.arcbt_locus_k.argtypes = [_dp, _ip, _dp]
+def k4_locus_k(h):
+    """The k of the kappa equivalence locus at each h (NaN where h >= 1/2)."""
+    out = (_ct.c_double * len(h))()
+    _lib.arcbt_locus_k(_vec(h), _i(len(h)), out)
+    return list(out)
+
+_lib.arcbt_k4eq.argtypes = [_dp, _dp, _ip, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _dp, _dp]
+def k4eq_fit(x, y, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), it1=12, it2=150, keep=6):
+    """Equivalence-constrained kappa fits with drift, many runs in one call; see the R function of the
+    same name. Returns (fit, pieces): per run (g0, m, g1, mu, sigma, k, h, rss, a, b, piece), and the
+    same for the best fit on every piece of the locus. Nothing is refused on physical grounds."""
+    X, Y, off, R = _runs(x, y)
+    n_p, h, k, toff = _locus(locus)
+    npo = n_p if n_p > 0 else 2
+    out = (_ct.c_double * (11 * R))()
+    pv = (_ct.c_double * (11 * npo * R))()
+    _lib.arcbt_k4eq(_vec(X), _vec(Y), _iv(off), _i(R), _i(n_p), _vec(h), _vec(k), _iv(toff),
+                    _vec(bounds), _i(it1), _i(it2), _i(keep), out, pv)
+    return _rows(list(out), 11), [_rows(r, 11) for r in _rows(list(pv), 11 * npo)]
+
+_lib.arcbt_host.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _ip, _dp, _dp]
+def bc_host_fit(x, y, curve, it1=15, it2=200, keep=6):
+    """Beta-companion fits with drift, free and on the equivalence curve (alpha, beta), many runs in
+    one call; see the R function of the same name. Returns (free, con): per run (g0, m, g1, s, w,
+    alpha, beta, rss, a, b)."""
+    X, Y, off, R = _runs(x, y)
+    cal = [float(r[0]) for r in curve]; cbe = [float(r[1]) for r in curve]
+    if len(cal) < 2 or any(b <= a for a, b in zip(cal, cal[1:])):
+        raise ValueError("curve needs at least two rows, increasing in alpha")
+    f = (_ct.c_double * (10 * R))(); c = (_ct.c_double * (10 * R))()
+    _lib.arcbt_host(_vec(X), _vec(Y), _iv(off), _i(R), _vec(cal), _vec(cbe), _i(len(cal)),
+                    _i(it1), _i(it2), _i(keep), f, c)
+    return _rows(list(f), 10), _rows(list(c), 10)
+
+def _seeds(seed, R):
+    s = [int(seed) + r for r in range(R)] if not hasattr(seed, "__len__") else [int(v) for v in seed]
+    if len(s) != R:
+        raise ValueError("one seed, or one per run")
+    return s
+
+_lib.arcbt_k4_boot.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _ip, _ip, _ip, _dp]
+def k4_boot(x, y, fit, box, gev=False, B=400, seed=4207, block=0, maxit=800):
+    """Moving-block residual bootstrap of free kappa fits with drift, many runs in one call; see the R
+    function of the same name. fit: rows (g0, m, g1, mu, sigma, k, h); box: one (k_lo, k_hi, h_lo,
+    h_hi) or one per run; gev: one flag or one per run. Returns (boot, block): boot[r][b] is
+    (a, b, k, h, sel)."""
+    X, Y, off, R = _runs(x, y)
+    F = [float(v) for row in fit for v in list(row)[:7]]
+    try:
+        len(box[0])
+    except TypeError:
+        box = [box]
+    if len(box) == 1:
+        box = list(box) * R
+    g = list(gev) if hasattr(gev, "__len__") else [gev] * R
+    if len(F) != 7 * R or len(box) != R or len(g) != R:
+        raise ValueError("fit, box and gev must have one row per run")
+    bl = (_ct.c_int * R)(); out = (_ct.c_double * (5 * B * R))()
+    _lib.arcbt_k4_boot(_vec(X), _vec(Y), _iv(off), _i(R), _vec(F), _vec([v for r in box for v in r]),
+                       _iv([int(bool(v)) for v in g]), _i(B), _iv(_seeds(seed, R)), _i(block),
+                       _i(maxit), bl, out)
+    return [_rows(r, 5) for r in _rows(list(out), 5 * B)], list(bl)
+
+_lib.arcbt_k4eq_boot.argtypes = [_dp, _dp, _ip, _ip, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip,
+                                 _ip, _ip, _dp]
+def k4eq_boot(x, y, fit, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), B=400, seed=4207, block=0,
+              it2=100):
+    """The bootstrap of a k4eq_fit, refitted on its own piece of the locus. Returns (boot, block):
+    boot[r][b] is (a, b, k, h)."""
+    X, Y, off, R = _runs(x, y)
+    n_p, h, k, toff = _locus(locus)
+    F = [float(v) for row in fit for v in list(row)[:7]]
+    piece = [int(row[10]) if n_p > 0 else 1 for row in fit]
+    if len(F) != 7 * R or any(not 1 <= p <= max(n_p, 1) for p in piece):
+        raise ValueError("fit must have one row per run, with its piece")
+    bl = (_ct.c_int * R)(); out = (_ct.c_double * (4 * B * R))()
+    _lib.arcbt_k4eq_boot(_vec(X), _vec(Y), _iv(off), _i(R), _vec(F), _iv(piece), _i(n_p), _vec(h),
+                         _vec(k), _iv(toff), _vec(bounds), _i(B), _iv(_seeds(seed, R)), _i(block),
+                         _i(it2), bl, out)
+    return [_rows(r, 4) for r in _rows(list(out), 4 * B)], list(bl)
 
 _lib.arck4_mv_boot.argtypes = [_dp, _dp, _ip, _dp, _ip, _ip, _dp, _ip, _dp, _dp]
 def k4_mv_boot(x, y, cut=float("-inf"), B=50, seed=4207, bounds=(-0.98, 0.95, 0.0, 4.0),

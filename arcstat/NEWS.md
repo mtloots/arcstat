@@ -1,3 +1,35 @@
+# arcstat (development version 0.3.1.9002)
+
+* **Number of threads.** Every parallel loop now uses one setting: the option `arcstat.threads`,
+  otherwise the environment variable `ARCSTAT_THREADS`, otherwise at most two as before.
+  `arc_threads()` reads and sets it. Results are bit-identical whatever the number (tested on 1, 2
+  and 8). In Python, `set_threads()`, `get_threads()` and the environment variable; the Python back
+  end is now built with OpenMP where the compiler has it.
+
+* New `k4eq_fit()`: kappa fits with drift constrained to the equivalence locus, many runs in one
+  call, with the linear part solved exactly and the starts of all runs sharing the threads. By default
+  on the whole locus, computed inside; alternatively on tables of it. No fit is refused on physical
+  grounds; the best fit on every piece of the locus is returned as well, so that a caller can refuse.
+  A linearly interpolated table puts kinks in the objective, at which a descent can stop at a local
+  minimum; every node and the cells beside the best nodes are searched.
+
+* New `k4_locus_k()`: the equivalence locus itself, to about 1e-15, over h from -infinity to 1/2.
+
+* New `bc_host_fit()`: beta-companion fits with drift, free and constrained to the equivalence curve,
+  many runs in one call. The curve is exactly 0 and 1 off the support, the exponents may lie in
+  [-1 + 1e-6, 20], and the free fit also starts from the constrained one.
+
+* New `k4_boot()` and `k4eq_boot()`: moving-block (or single) residual bootstraps of the free and the
+  constrained kappa fit, many runs in one call, each run in its own box and with h held at zero where
+  its point fit holds it. Replicate b of a run depends only on the run's seed and b.
+
+* **`k4_mv_boot()` could not reach a curve with negative h.** Its start grid had positive h only, and
+  the presmoothed and banded pipelines searched log h from 0.02 up, whatever the box. The start grid now
+  covers both signs, all eight pipelines search h directly in the box `bounds`, the presmoothed
+  pipelines solve their linear part exactly, and a replicate starts from its pipeline's own point fit
+  rather than from the base fit. Point estimates and replicates change; by how much depends on the
+  share of curves with negative h.
+
 # arcstat (development version 0.3.1.9001)
 
 * **`k4_readings()` returned tangent readings that were too low on heavy right tails**, and with it
