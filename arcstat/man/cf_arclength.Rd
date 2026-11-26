@@ -22,3 +22,8 @@ the arc length of that curve over a window \eqn{[0, T]}, doubled for the symmetr
 standardised internally, so the value is scale free. It is a descriptive, asymmetry-sensitive summary:
 a symmetric law tends to the value two, and asymmetry adds length.
 }
+\examples{
+set.seed(1)
+## the normal carries arc length 2 (see cf_arclength_family)
+cf_arclength(rnorm(5000))
+}

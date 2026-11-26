@@ -28,7 +28,8 @@ k4_fit(
 \item{floors}{lower bounds on \eqn{h}, deepest first, tried in turn when \code{gate = TRUE}; otherwise
 \code{bounds[3]} is used.}
 
-\item{gate}{\code{FALSE} takes the lowest minimum whatever it is; \code{TRUE} takes the first of \code{floors} whose best fit is physical, meaning that
+\item{gate}{\code{FALSE} takes the lowest minimum whatever it is; \code{TRUE} takes the first of \code{floors}
+whose best fit is physical, meaning that
 \code{g1 > 0} and the tangent reading lies between 0 and \code{max(x)}, and the fit at the last
 floor if none is; \code{"best"} takes the lowest minimum that is physical in the box
 \code{bounds}, and \code{NaN} where none is found. \code{TRUE} depends on the search: the better

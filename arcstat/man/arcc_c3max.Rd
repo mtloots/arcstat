@@ -12,3 +12,6 @@ the exact bound 3 sqrt(3) / 5 on |c3|, beyond which the quantile density goes ne
 \description{
 Largest admissible shape parameter of the smooth circular family
 }
+\examples{
+arcc_c3max()
+}

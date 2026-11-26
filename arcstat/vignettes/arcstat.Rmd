@@ -123,6 +123,53 @@ rbind(alpha = als, beta_star = round(bss, 6))
 c(discrepancy_on_the_curve = eq_E(-0.60, eq_bstar(-0.60)))
 ```
 
+## A real sample: Old Faithful
+
+The eruption durations of the Old Faithful geyser (`faithful`, in base R) are bimodal. Against the
+normal law with the sample's own mean and standard deviation the arc-length test rejects
+decisively, which is the kind of departure it was built to see:
+
+```{r}
+fa <- faithful$eruptions
+al_test(fa, null = function(q) pnorm(q, mean(fa), sd(fa)))$p.value
+```
+
+## Induction curves
+
+The four-parameter kappa distribution of Hosking (1994) serves as the mean curve of a rising
+trace, $y = g_0 + m x + g_1 F(x; \mu, \sigma, k, h)$, and two standard readings are taken from it:
+the tangent at the steepest point meets the baseline at $a$, and the third derivative vanishes at
+$b$. `k4_fit()` fits many runs in one call, with the linear part solved exactly and the shape
+searched from a grid of starts; `k4_readings()` gives the readings in closed form.
+
+The `DNase` data of base R hold eleven runs of an assay, optical density against concentration.
+On the logarithm of concentration each run is a sigmoid, and each is fitted without a drift term:
+
+```{r}
+d <- split(DNase, DNase$Run)
+x <- lapply(d, function(z) log(z$conc))
+y <- lapply(d, function(z) z$density)
+f <- k4_fit(x, y, bounds = c(-0.98, 0.95, -5, 4), drift = FALSE)
+round(f[, c("k", "h", "rss", "a", "b")], 4)
+```
+
+Whether the runs share one shape, differing only in position, scale and height, is a question of
+the price of a common shape: the sum of squares of the shared fit against that of the free fits.
+
+```{r}
+s <- k4_shared_fit(x, y, bounds = c(-0.98, 0.95, -3, 4), drift = FALSE)
+s$fit
+c(price = s$fit[1, "rss"] / sum(f[, "rss"]))
+```
+
+A price this close to one says that a single shape describes the eleven assays nearly as well as
+eleven shapes do. `k4_shared_perm()` turns such comparisons between groups of runs into a
+permutation test, and `k4eq_fit()` fits the curve on the equivalence locus, on which the two
+readings coincide.
+
+The number of threads of every parallel loop is set by `arc_threads()`; the results do not depend
+on it.
+
 ## L-moments
 
 Population and sample L-moments are included, since the families above are estimated by

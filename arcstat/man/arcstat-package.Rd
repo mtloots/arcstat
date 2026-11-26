@@ -4,9 +4,9 @@
 \name{arcstat-package}
 \alias{arcstat}
 \alias{arcstat-package}
-\title{arcstat: Arc-Length Statistics: Goodness of Fit, Distributions and a Bayesian Test}
+\title{arcstat: Arc-Length Statistics, Equivalence Families and Induction Curves}
 \description{
-Inference from the arc length of statistical functions. Three tools share one pure-C back-end: a goodness-of-fit test based on the arc length of the probability plot, with an analytic saddlepoint null and sensitivity to local density structure that the empirical-distribution tests miss; two constructions that build a distribution from the arc length of its defining curve, the arc-length generator and the quantile arc-length family estimated by L-moments; and a Bayesian nonparametric arc-length goodness-of-fit test on the Dirichlet-process posterior. The same C sources back the 'Python' package 'arcstat'.
+Inference from the arc length of statistical functions, and the curves of the induction-period standards. A goodness-of-fit test based on the arc length of the probability plot with an analytic saddlepoint null; distributions built from the arc length of their defining curve, estimated by L-moments; the characteristic-function arc length; a Bayesian nonparametric arc-length test; the equivalence families of the four-parameter kappa distribution of Hosking (1994) \doi{10.1147/rd.383.0251} and of the beta-companion family, on which the two standard induction-period readings coincide; and batched fits, bootstraps and permutation tests of induction curves. One pure-C back-end, parallel by 'OpenMP', serves this package and the 'Python' package 'arcstat'.
 }
 \seealso{
 Useful links:

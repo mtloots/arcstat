@@ -1,11 +1,11 @@
 # arcstat
 
-Arc-length statistics: goodness of fit, distributions, and a Bayesian test — one shared, pure-C
-back-end, bound identically from **R** (package `arcstat`) and **Python** (this package).
+Arc-length statistics, equivalence families and induction curves — one shared, pure-C back-end,
+parallel by OpenMP, bound identically from **R** (package `arcstat`) and **Python** (this package).
 
 The C sources are compiled on first import; there are no third-party dependencies.
 
-## Three tools
+## Tools
 
 - **Goodness of fit** — a test based on the arc length of the probability plot, with an analytic
   saddlepoint null, sensitive to local density structure (multimodality, clustering, heaping) that the
@@ -15,6 +15,10 @@ The C sources are compiled on first import; there are no third-party dependencie
   arc-length family and its L-moment fitting: `arcq_qd`, `arcq_arclength`, `sample_lmoments`.
 - **Bayesian test** — a Dirichlet-process / Bayesian-bootstrap arc-length goodness-of-fit test:
   `bb_post_disc`, `bb_ref_disc`, `bb_evidence`.
+
+- **Induction curves** — kappa, inverse Gaussian and beta-companion curves with drift, many runs in one
+  call, with bootstraps and a permutation test of a shared shape: `k4_fit`, `k4eq_fit`, `k4_shared_fit`,
+  `k4_shared_perm`, `k4_boot`, `k4eq_boot`, `wald_fit`, `bc_host_fit`; `set_threads(n)`.
 
 ```python
 import arcstat

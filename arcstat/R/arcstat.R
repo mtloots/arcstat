@@ -12,6 +12,9 @@
 #' Arc-length goodness-of-fit statistic (C back-end)
 #' @param u numeric probability-integral transforms in [0,1].
 #' @return the scalar arc length of the probability-plot ogive.
+#' @examples
+#' u <- sort(runif(100))
+#' al_statistic(u)
 #' @export
 al_statistic <- function(u) {
   if (any(u < 0 | u > 1)) stop("`u` must be probability-integral transforms in [0,1]")
@@ -22,6 +25,9 @@ al_statistic <- function(u) {
 #' @param s observed statistic value;
 #' @param n sample size.
 #' @return the right-tail p-value.
+#' @examples
+#' u <- sort(stats::runif(100))
+#' al_pvalue(al_statistic(u), 100)
 #' @export
 al_pvalue <- function(s, n)
   .C(C_al_pvalue, s = as.double(s), n = as.integer(n), out = double(1))$out
@@ -29,6 +35,9 @@ al_pvalue <- function(s, n)
 #' Exact mean, variance and support of the arc-length statistic (C back-end)
 #' @param n sample size.
 #' @return list with mean, var, support.
+#' @examples
+#' m <- al_moments(100L)
+#' m$mean; m$support
 #' @export
 al_moments <- function(n) {
   r <- .C(C_al_moments, n = as.integer(n), out = double(4))$out
@@ -45,6 +54,10 @@ al_moments <- function(n) {
 #' @param nboot optional bootstrap reps.
 #' @param rnull generator matching null (needed with nboot).
 #' @return an object of class "htest".
+#' @examples
+#' set.seed(1)
+#' al_test(runif(150))$p.value
+#' al_test(rbeta(150, 0.5, 0.5))$p.value
 #' @export
 al_test <- function(x, null = stats::punif, nboot = NULL, rnull = NULL) {
   x <- x[is.finite(x)]; n <- length(x)
@@ -176,21 +189,6 @@ arclength <- function(obj, exact = TRUE, nodes = 24L) {
      sigma = as.double(obj$sigma), nodes = as.integer(nodes), out = double(1))$out    # shared C back-end
 }
 
-## Gauss-Legendre nodes and weights on [0,1] (Newton on the Legendre polynomial)
-.gauss_legendre <- function(n) {
-  i <- seq_len(n); x <- cos(pi * (i - 0.25) / (n + 0.5))
-  for (it in 1:100) {
-    p0 <- rep(1, n); p1 <- x
-    for (k in 2:n) { p2 <- ((2 * k - 1) * x * p1 - (k - 1) * p0) / k; p0 <- p1; p1 <- p2 }
-    dp <- n * (x * p1 - p0) / (x^2 - 1); dx <- p1 / dp; x <- x - dx
-    if (max(abs(dx)) < 1e-15) break
-  }
-  p0 <- rep(1, n); p1 <- x
-  for (k in 2:n) { p2 <- ((2 * k - 1) * x * p1 - (k - 1) * p0) / k; p0 <- p1; p1 <- p2 }
-  dp <- n * (x * p1 - p0) / (x^2 - 1); w <- 2 / ((1 - x^2) * dp^2)
-  list(x = (x + 1) / 2, w = w / 2)
-}
-
 #' Theoretical L-moments of an arcq distribution
 #'
 #' L_r is the shifted-Legendre projection of Q (Hosking's convention): L_r =
@@ -198,6 +196,8 @@ arclength <- function(obj, exact = TRUE, nodes = 24L) {
 #' @param obj an "arcq" object.
 #' @param nmom number of L-moments.
 #' @return the first nmom L-moments; ratios tau_r = L_r/L_2 for r>=3 via lmratios().
+#' @examples
+#' lmoments(arcq(0.5))
 #' @export
 lmoments <- function(obj, nmom = 4L) {
   P <- .shifted_legendre(obj$u, nmom - 1L)
@@ -250,6 +250,9 @@ sample_lmoments <- function(x, nmom = 4L) {
 #' @param x data.
 #' @return an `arcq` object, with a `fit` component holding the coefficients, `mu`, `sigma` and an
 #'   `admissible` flag; a warning is issued when the estimate leaves the admissible set.
+#' @examples
+#' set.seed(1)
+#' fit_arcq_cf(rnorm(400))
 #' @export
 fit_arcq_cf <- function(x) {
   o <- .C(C_arcq_fit_cf_c, x = as.double(x), n = as.integer(length(x)),
@@ -301,6 +304,10 @@ fit_arcq <- function(x, order = 2L) {
 #' @param lower,upper bounded support.
 #' @param ngrid grid resolution.
 #' @return an object of class "arcgen".
+#' @examples
+#' g <- arc_generator(function(z) dnorm(z), -6, 6)
+#' pgen(0, g)
+#' dgen(c(-1, 0, 1), g)
 #' @export
 arc_generator <- function(dens, lower, upper, ngrid = 4000L) {
   stopifnot(is.finite(lower), is.finite(upper), upper > lower)
@@ -339,6 +346,9 @@ rgen <- function(n, obj) approx(obj$G, obj$x, xout = stats::runif(n), rule = 2)$
 #' @param M number of posterior draws.
 #' @param seed integer seed for the C back-end.
 #' @return an \code{M} by 2 matrix with columns \code{arc} and \code{ks}.
+#' @examples
+#' p <- bb_post_disc((1:60 - 0.5) / 60, M = 200L)
+#' summary(p)
 #' @export
 bb_post_disc <- function(u, M, seed = 1L) {
   u <- sort(u)
@@ -356,6 +366,9 @@ bb_post_disc <- function(u, M, seed = 1L) {
 #' @param m posterior draws per data set.
 #' @param seed integer seed for the C back-end.
 #' @return a matrix with columns \code{arc} and \code{ks}.
+#' @examples
+#' ref <- bb_ref_disc(60L)
+#' str(ref)
 #' @export
 bb_ref_disc <- function(n, D = 300L, m = 16L, seed = 7L) {
   r <- .C(C_bb_ref, n = as.integer(n), D = as.integer(D), m = as.integer(m),
@@ -375,6 +388,9 @@ bb_ref_disc <- function(n, D = 300L, m = 16L, seed = 7L) {
 #' @param ref optional precomputed reference from \code{bb_ref_disc}; computed if \code{NULL}.
 #' @param seed integer seed for the C back-end.
 #' @return the posterior evidence against the null, in [0,1].
+#' @examples
+#' ref <- bb_ref_disc(60L)
+#' bb_evidence((1:60 - 0.5) / 60, ref = ref, M = 300L)
 #' @export
 bb_evidence <- function(u, which = "arc", level = 0.95, M = 1500L, ref = NULL, seed = 1L) {
   n <- length(u); if (is.null(ref)) ref <- bb_ref_disc(n)
@@ -392,10 +408,14 @@ bb_evidence <- function(u, which = "arc", level = 0.95, M = 1500L, ref = NULL, s
 #' @param T upper end of the frequency window.
 #' @param ngrid number of grid points on \eqn{[0, T]}.
 #' @return the windowed arc length of the empirical characteristic function.
+#' @examples
+#' set.seed(1)
+#' ## the normal carries arc length 2 (see cf_arclength_family)
+#' cf_arclength(rnorm(5000))
 #' @export
 cf_arclength <- function(x, T = 6, ngrid = 1200L) {
   x <- as.double(x[is.finite(x)])
-  .C(C_cf_arclength_emp, x = x, n = length(x), T = as.double(T),
+  .C(C_cf_arclength_emp, x = x, n = length(x), tmax = as.double(T), # nolint: T_and_F_symbol_linter.
      ng = as.integer(ngrid), out = double(1))$out
 }
 
@@ -440,6 +460,9 @@ cf_arclength_family <- function(family = c("exponential", "gamma", "normal", "ca
 #' @param a,b the probability band;
 #' @param nodes quadrature panels.
 #' @return the model band arc length.
+#' @examples
+#' ## the normal reference band arc length grows with the scale
+#' al_band_model(c(0.5, 1, 2))
 #' @export
 al_band_model <- function(sigma, a = 0.05, b = 0.95, nodes = 400L)
   .C(C_al_band_model, sigma = as.double(sigma), a = as.double(a), b = as.double(b),
@@ -450,6 +473,9 @@ al_band_model <- function(sigma, a = 0.05, b = 0.95, nodes = 400L)
 #' @param x data;
 #' @param a,b the probability band.
 #' @return the sample band arc length, NA when fewer than two points fall in the band.
+#' @examples
+#' set.seed(1)
+#' al_band_sample(rnorm(400, sd = 2))
 #' @export
 al_band_sample <- function(x, a = 0.05, b = 0.95) {
   x <- as.double(x[is.finite(x)])
@@ -470,6 +496,8 @@ al_band_sample <- function(x, a = 0.05, b = 0.95) {
 #' @param nodes number of Simpson nodes across the band; the exponential expectation uses a
 #'   64-point Gauss-Laguerre rule, which is exact to machine precision for this integrand.
 #' @return the spacing-corrected model band arc length at \code{sigma}.
+#' @examples
+#' al_band_model_star(1, 0.1, 0.9)
 #' @export
 al_band_model_star <- function(sigma, a = 0.05, b = 0.95, nodes = 400) {
   .C(C_al_band_model_star, sigma = as.double(sigma), a = as.double(a), b = as.double(b),
@@ -490,6 +518,12 @@ al_band_model_star <- function(sigma, a = 0.05, b = 0.95, nodes = 400) {
 #' @param x data;
 #' @param a,b the probability band, whose tail mass sets the breakdown point.
 #' @return the estimated scale, NA when the MAD vanishes or the matching equation has no root.
+#' @examples
+#' set.seed(1)
+#' x <- rnorm(400, sd = 3)
+#' al_scale(x)
+#' ## scale equivariance
+#' al_scale(7 * x) / al_scale(x)
 #' @export
 al_scale <- function(x, a = 0.05, b = 0.95) {
   x <- as.double(x[is.finite(x)])
@@ -505,6 +539,9 @@ al_scale <- function(x, a = 0.05, b = 0.95) {
 #' @param x data;
 #' @param a,b the probability band.
 #' @return the uncorrected scale estimate, NA when the MAD vanishes or there is no root.
+#' @examples
+#' set.seed(1)
+#' al_scale_raw(rnorm(400, sd = 3))
 #' @export
 al_scale_raw <- function(x, a = 0.05, b = 0.95) {
   x <- as.double(x[is.finite(x)])
@@ -523,6 +560,8 @@ al_scale_raw <- function(x, a = 0.05, b = 0.95) {
 #' Largest admissible shape parameter of the smooth circular family
 #'
 #' @return the exact bound 3 sqrt(3) / 5 on |c3|, beyond which the quantile density goes negative.
+#' @examples
+#' arcc_c3max()
 #' @export
 arcc_c3max <- function() .C(C_arcc_c3max, out = double(1))$out
 
@@ -531,6 +570,11 @@ arcc_c3max <- function() .C(C_arcc_c3max, out = double(1))$out
 #' @param c3 shape parameter, |c3| <= arcc_c3max(); c3 = 0 is the circular uniform.
 #' @param mu mean direction in radians.
 #' @return an object of class "arccirc".
+#' @examples
+#' o <- arccirc(0.4, mu = 0.3)
+#' ## the density integrates to one
+#' stats::integrate(function(t) darccirc(t, o), 0, 2 * pi)$value
+#' rho_arccirc(o)
 #' @export
 arccirc <- function(c3 = 0, mu = 0) {
   stopifnot(length(c3) == 1L, length(mu) == 1L)
@@ -591,6 +635,9 @@ rarccirc <- function(n, obj)
 #' @param theta angles in radians.
 #' @param nodes rectangle-rule nodes used inside the inversion.
 #' @return a list with mu, c3, the observed |phi_1|, and whether the inversion stayed interior.
+#' @examples
+#' th <- rarccirc(300, arccirc(0.5, 0.2))
+#' fit_arccirc(th)[c("c3", "mu")]
 #' @export
 fit_arccirc <- function(theta, nodes = 4096L) {
   o <- .C(C_arcc_fit3, theta = as.double(theta), n = as.integer(length(theta)),
@@ -607,6 +654,9 @@ fit_arccirc <- function(theta, nodes = 4096L) {
 #' @param p complex vector of polynomial coefficients.
 #' @param mu mean direction.
 #' @return an object of class "arccirc_fr".
+#' @examples
+#' fr <- arccirc_fr(c(0.3 + 0.1i))
+#' darccirc_fr(c(0, 1, 2), fr)
 #' @export
 arccirc_fr <- function(p, mu = 0) structure(list(p = as.complex(p), mu = mu), class = "arccirc_fr")
 
@@ -674,6 +724,10 @@ rarccirc_fr <- function(n, obj, nodes = 4096L)
 #' @param x observations on the unit interval, obtained by cutting the circle at the mean direction.
 #' @param nm number of L-moments.
 #' @return complex vector of length nm.
+#' @examples
+#' l <- lmom_circ(rarccirc(500L, arccirc(0.8, 0.3)), 3L)
+#' l
+#' qmin_rho(0.4)
 #' @export
 lmom_circ <- function(x, nm = 3L) {
   o <- .C(C_arcc_lmom, x = as.double(x), n = as.integer(length(x)),
@@ -749,7 +803,8 @@ factorise_rho <- function(rho, margin = 0, nodes = 4096L) {
 #' Sort, apply the circular L-moment weights, invert the exact linear map, factorise: no numerical
 #' search enters anywhere. The pair (p, mu) is not identified, because shifting the cut is absorbed
 #' exactly by a phase ramp on the coefficients, so the gauge is fixed by cutting at the sample mean
-#' direction; compare two fits by the density they imply, not by their coefficients. Following the practice of the linear
+#' direction; compare two fits by the density they imply, not by their coefficients. Following the practice of the
+#'   linear
 #' family, an estimate that leaves the admissible set is reported rather than silently replaced; the
 #' shrunken spectrum is returned as a labelled fallback because, unlike the linear case, the
 #' factorisation itself fails without one.
@@ -759,6 +814,9 @@ factorise_rho <- function(rho, margin = 0, nodes = 4096L) {
 #' @param margin required minimum of the implied quantile density.
 #' @param nodes quadrature nodes.
 #' @return a list with the coefficients, mean direction, shrink factor and admissibility.
+#' @examples
+#' th <- rarccirc(300, arccirc(0.5, 0.2))
+#' str(fit_arccirc_fr(th))
 #' @export
 fit_arccirc_fr <- function(theta, nm = 3L, margin = 0, nodes = 4096L) {
   o <- .C(C_arcc_fit_fr, theta = as.double(theta), n = as.integer(length(theta)),
@@ -784,6 +842,9 @@ fit_arccirc_fr <- function(theta, nm = 3L, margin = 0, nodes = 4096L) {
 #' @param s tempering scale.
 #' @param nodes quadrature nodes for the normaliser.
 #' @return density values at theta.
+#' @examples
+#' stats::integrate(function(t) dtemper_vm(t, kappa = 1), 0, 2 * pi)$value
+#' trigmom_temper_vm(1, kappa = 1)
 #' @export
 dtemper_vm <- function(theta, kappa, mu = 0, s = 1, nodes = 4096L)
   .C(C_arcc_temper_vm, theta = as.double(theta), nth = as.integer(length(theta)),
@@ -805,6 +866,11 @@ trigmom_temper_vm <- function(p, kappa, mu = 0, s = 1, nodes = 4096L) {
 #' @param u,x numeric vectors of probabilities or quantiles
 #' @param mu,sg,k,h kappa parameters (location, scale, two shapes)
 #' @return numeric vector
+#' @examples
+#' u <- c(0.1, 0.5, 0.9)
+#' x <- k4_q(u, 8, 2, -0.3, 0.2)
+#' k4_cdf(x, 8, 2, -0.3, 0.2)
+#' k4_pdf(x, 8, 2, -0.3, 0.2)
 #' @export
 k4_q <- function(u, mu=0, sg=1, k, h)
   .C("arck4_q", as.double(u), as.integer(length(u)), as.double(mu), as.double(sg),
@@ -828,6 +894,8 @@ k4_pdf <- function(x, mu=0, sg=1, k, h)
 #'   removes both end singularities, and 200 nodes give full double precision.
 #' @return c(tau3, tau4, l1, l2); NaN where the moments do not exist (\eqn{k \le -1} or
 #'   \eqn{hk \le -1} with \eqn{h < 0})
+#' @examples
+#' k4_tau34(0.1, 0.4)
 #' @export
 k4_tau34 <- function(k, h, nodes=200L)
   .C("arck4_tau34", as.double(k), as.double(h), as.integer(nodes), out=double(4))$out
@@ -861,6 +929,12 @@ k4_runmed <- function(y, w=9L)
 #' @param nodes number of Gauss-Legendre nodes per band
 #' @param p the norm used for the arc-length element; 2 is the Euclidean default, Inf the tropical.
 #' @return A numeric vector of band arc lengths, one per band.
+#' @examples
+#' th <- c(0, 300, 8, 2, -0.3, 0.2)
+#' br <- seq(0, 20, by = 5)
+#' k4_band_model(th, br)
+#' x <- seq(0, 20, length.out = 200)
+#' k4_band_sample(x, th[1] + th[2] * k4_cdf(x, 8, 2, -0.3, 0.2), br)
 #' @export
 k4_band_model <- function(theta, breaks, nodes=60L, p=2)
   .C("arck4_band_model", as.double(theta), as.double(breaks),
@@ -909,6 +983,10 @@ k4_readings <- function(theta, grid=4000L){
 #' @param p the norm used for the arc-length element; 2 is the Euclidean default, Inf the tropical
 #' @return A list of fitted parameters, whose components depend on which fitting routine
 #'   is called; all return the six-vector \code{theta} of the scaled kappa curve.
+#' @examples
+#' ## invert the L-moment ratios of a member
+#' tt <- k4_tau34(0.1, 0.4)
+#' k4_fit_lmom(tt[1], tt[2])
 #' @export
 k4_fit_lmom <- function(t3, t4, nodes=200L){
   r <- .C("arck4_fit_lmom", as.double(t3), as.double(t4), as.integer(nodes), out=double(3))$out
@@ -962,6 +1040,11 @@ k4_fit_nalr <- function(x, y, start, J=12L, lambda=1, w=9L, p=2){
 #'   \code{a} and \code{b} by up to 5 per cent for \eqn{\alpha} between \eqn{-0.6435} and
 #'   \eqn{-0.505}; the gap \code{D} was almost unaffected.
 #' @return c(D, a, b, u_c, u_b); NA when the geometry is invalid
+#' @examples
+#' ## on the equivalence curve the two readings coincide
+#' al <- -0.60
+#' r <- eq_readings(al, eq_bstar(al))
+#' r
 #' @export
 eq_readings <- function(alpha, beta, theta=numeric(0), ngrid=20001L){
   r <- .C("arceq_readings", as.double(alpha), as.double(beta), as.integer(length(theta)),
@@ -1126,6 +1209,14 @@ eq_bstar <- function(alpha)
 #'   vector of the same length as \code{k} and \code{betas} respectively.
 #'   \code{eqfit_score_at} returns a single number, the score at the given parameter point, and
 #'   \code{eqfit_blocklen} a single integer, the selected moving-block length.
+#' @examples
+#' curve <- cbind(a <- seq(-0.62, -0.51, length.out = 8), sapply(a, eq_bstar))
+#' x <- 20 * (0:119) / 119
+#' y <- 1 + 300 * (1:120) / 121 + 3 * sin(4321 * (1:120))
+#' st <- rbind(c(1, log(300), 0, log(20), 0.3, 0.5))
+#' f <- eqfit_bc(x, y, st, curve, maxit = 400L)
+#' f$sse
+#' eqfit_blocklen(sin(0.05 * (1:300)))
 #' @export
 eqfit_bc <- function(x, y, starts, curve, maxit = 4000L){
   starts <- as.matrix(starts); np <- ncol(starts)
@@ -1274,6 +1365,10 @@ eq_E_sweep <- function(alpha, betas){
 #'   mostly the effect of leaving the drift out.
 #' @return \code{list(a_pt, A)}: the eight named point estimates, and the \code{B} by eight
 #'   matrix of replicate readings (\code{NULL} when \code{B = 0})
+#' @examples
+#' x <- seq(0, 20, length.out = 120)
+#' y <- 1 + 300 * k4_cdf(x, 8, 2.5, 0.2, 0.4) + 2 * sin(9871 * seq_along(x))
+#' k4_mv_boot(x, y, B = 0L, maxit = 300L)$a_pt
 #' @export
 k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
                        bounds = c(-0.98, 0.95, 0, 4), maxit = 1500L, drift = FALSE){
@@ -1298,7 +1393,8 @@ k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
 #' searched; the multi-start is run in the C back end, in parallel over starts, and the best is
 #' chosen serially so the answer does not depend on the thread count (see \code{\link{arc_threads}}).
 #' @param x,y the curve.
-#' @param starts a matrix with four columns, \code{(mu, log sigma, k, h)}, one row per start; h is carried directly so negative values are admissible.
+#' @param starts a matrix with four columns, \code{(mu, log sigma, k, h)}, one row per start; h is carried directly so
+#'   negative values are admissible.
 #' @param maxit iterations per Nelder-Mead descent.
 #' @param bounds admissible shape box \code{c(k_lo, k_hi, h_lo, h_hi)}. The default lower bound on
 #'   \eqn{k} is the one the edible-oil analysis settled on: a wider box lowers the residual sum of
@@ -1312,6 +1408,12 @@ k4_mv_boot <- function(x, y, cut = -Inf, B = 50L, seed = 4207L,
 #'   fits is model selection between a nested pair, and is left to the caller.
 #' @return a list with \code{theta} in the six-vector convention \code{(g0, g1, mu, sg, k, h)},
 #'   the fitted \code{drift}, and the residual sum of squares \code{rss}.
+#' @examples
+#' x <- seq(0, 20, length.out = 120)
+#' y <- 1 + 0.2 * x + 300 * k4_cdf(x, 9, 2, -0.3, -0.5) + sin(4321 * seq_along(x))
+#' st <- as.matrix(expand.grid(c(8, 10), log(c(1, 3)), c(-0.5, 0), c(-1, 0.2)))
+#' f <- k4_fit_varpro(x, y, st, bounds = c(-0.98, 0.95, -60, 4))
+#' f$theta; f$rss
 #' @export
 k4_fit_varpro <- function(x, y, starts, maxit = 1500L,
                           bounds = c(-0.98, 0.95, 0, 4), hfix = NA_real_) {
@@ -1348,6 +1450,9 @@ k4_fit_varpro <- function(x, y, starts, maxit = 1500L,
 #' @param sigma error standard deviation of a single observation.
 #' @param breaks the \code{J+1} band edges.
 #' @return the \code{J} expected band arc lengths.
+#' @examples
+#' x <- seq(0, 20, length.out = 200)
+#' k4_band_trop_mean(x, c(0, 300, 8, 2, -0.3, 0.2), sigma = 1, breaks = c(0, 10, 20))
 #' @export
 k4_band_trop_mean <- function(x, theta, sigma, breaks) {
   J <- length(breaks) - 1L
@@ -1425,6 +1530,10 @@ k4_locus_dist <- function(h, k, locus_h, locus_k) {
 #'   (36 for ten-degree grouping)
 #' @param level test level, so the interval has coverage \code{1 - level}
 #' @return list with the interval, the observed statistic and the p-value curve that was inverted
+#' @examples
+#' set.seed(1)
+#' th <- rarccirc(200, arccirc(0.4))
+#' arcc_exact_ci(th, B = 99L)[c("lower", "upper")]
 #' @export
 arcc_exact_ci <- function(theta, cgrid = seq(0, arcc_c3max(), length.out = 81), B = 999L,
                           stat = 0L, group = 0L, level = 0.10, seed = 4207L){
@@ -1451,6 +1560,9 @@ arcc_exact_ci <- function(theta, cgrid = seq(0, arcc_c3max(), length.out = 81), 
 #'   angles after the probability-integral transform through the fitted member, and \code{p} is its
 #'   Monte Carlo p-value against the distribution-free reference law. Because the transform sends
 #'   the sample to uniform under the hypothesis, the p-value is exact in level for any \code{B}.
+#' @examples
+#' th <- rarccirc(200, arccirc(0.4, 0.3))
+#' arcc_gof(th, fit_arccirc(th), B = 99L)
 #' @export
 arcc_gof <- function(theta, fit, B = 999L, seed = 4207L){
   o <- .C(C_arcc_gof, as.double(theta), as.integer(length(theta)), as.double(fit$c3),
@@ -1493,7 +1605,7 @@ arc_threads <- function(n) {
   n <- lengths(x)
   stopifnot(length(x) == length(y), length(x) >= 1L, all(n == lengths(y)), all(n >= 8L))
   X <- as.double(unlist(x, use.names = FALSE)); Y <- as.double(unlist(y, use.names = FALSE))
-  if (any(!is.finite(X)) || any(!is.finite(Y))) stop("x and y must be finite")
+  if (!all(is.finite(X)) || !all(is.finite(Y))) stop("x and y must be finite")
   list(X = X, Y = Y, off = as.integer(c(0, cumsum(n))), R = length(n), names = names(x))
 }
 .arc_locus <- function(locus) {
@@ -1542,7 +1654,8 @@ k4_locus_k <- function(h)
 #' starts, the best of which are carried to convergence and polished by a simplex. The starts of all
 #' runs share one pool of threads (\code{\link{arc_threads}}); results do not depend on the number.
 #'
-#' Unless \code{gate = "best"}, no fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the reading are
+#' Unless \code{gate = "best"}, no fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the
+#'   reading are
 #' the caller's to judge; a caller who gates the free fit in that way must gate both fits, or a ratio
 #' of the two sums of squares can fall below one.
 #' @param x,y one run as two vectors, or many runs as two lists of vectors.
@@ -1579,10 +1692,10 @@ k4eq_fit <- function(x, y, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), drift 
                      gate = FALSE, it1 = 12L, it2 = 150L, keep = 6L) {
   d <- .arc_runs(x, y); L <- .arc_locus(locus); np <- if (L$np > 0L) L$np else 2L
   stopifnot(length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4], keep >= 1L)
-  .arc_sync_threads()
+  .arc_sync_threads(); g <- .arc_gate(gate)
   r <- .C(C_arcbt_k4eq, d$X, d$Y, d$off, d$R, L$np, L$h, L$k, L$off, as.double(bounds),
           as.integer(drift), as.integer(it1), as.integer(it2), as.integer(keep),
-          g <- .arc_gate(gate), out = double(11 * d$R), p = double(11 * np * d$R),
+          g, out = double(11 * d$R), p = double(11 * np * d$R),
           s = double(5 * d$R), NAOK = TRUE)
   nm <- c("g0", "m", "g1", "mu", "sigma", "k", "h", "rss", "a", "b", "piece")
   z <- list(fit = matrix(r$out, d$R, 11, byrow = TRUE, dimnames = list(d$names, nm)),
@@ -1604,21 +1717,31 @@ k4eq_fit <- function(x, y, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), drift 
 #'   computed inside (\code{\link{eq_bstar}}); or a two-column matrix \code{(alpha, beta)} of it,
 #'   increasing in alpha, interpolated linearly, in which alpha is held.
 #' @param eps how close to -1 the exponents may come.
-#' @param dense use 16 (free) and 8 (constrained) times as many starts.
+#' @param dense \code{TRUE} (the default) uses 16 (free) and 8 (constrained) times as many starts as
+#'   \code{FALSE}, which is about three times faster. On the 98 induction runs of the archive the quick
+#'   search stopped above the dense one on 84 constrained fits (by up to a factor of 14 on one run);
+#'   the dense search left no gap of more than 7.4e-6 relative to a heavier search (16 kept starts,
+#'   600 iterations) except where the fit runs along a boundary ridge: an exponent tending to -1 while
+#'   the scale \code{w} grows, on which the sum of squares falls slowly and the minimum is an infimum.
+#'   There the heavier search went lower by at most 0.16 per cent on 27 constrained fits (24 with beta
+#'   at the boundary) and 0.65 per cent on 3 free fits. The readings moved by less than 4e-4 except on
+#'   the degenerate Marula runs, whose readings lie far before the data (below -37) and moved by up to
+#'   240; on such runs a reading is not determined by the data.
 #' @return a list of two matrices, \code{free} and \code{con}, with one row per run and columns
 #'   \code{g0, m, g1, s, w, alpha, beta, rss, a, b}; \code{a} and \code{b} are the two readings.
 #' @examples
-#' curve <- cbind(a <- seq(-0.62, -0.51, length.out = 12), sapply(a, eq_bstar))
-#' x <- seq(0, 20, length.out = 120)
+#' curve <- cbind(a <- seq(-0.62, -0.51, length.out = 6), sapply(a, eq_bstar))
+#' x <- seq(0, 20, length.out = 50)
 #' y <- 2 + 0.1 * x + 250 * bc_cdf((x - 1) / 17 * beta(0.4, 0.6), -0.6, -0.4) + cos(999 * x)
 #' h <- bc_host_fit(x, y, curve)
 #' h$con[, "rss"] / h$free[, "rss"]
 #' @export
 bc_host_fit <- function(x, y, curve = NULL, it1 = 15L, it2 = 200L, keep = 6L, eps = 1e-6,
-                        dense = FALSE) {
+                        dense = TRUE) {
   d <- .arc_runs(x, y)
   curve <- if (is.null(curve)) matrix(0, 0L, 2L) else as.matrix(curve)
-  stopifnot(nrow(curve) != 1L, eps >= 1e-12, eps < 0.01, ncol(curve) == 2L, all(is.finite(curve)), all(diff(curve[, 1]) > 0))
+  stopifnot(nrow(curve) != 1L, eps >= 1e-12, eps < 0.01, ncol(curve) == 2L, all(is.finite(curve)),
+            all(diff(curve[, 1]) > 0))
   .arc_sync_threads()
   r <- .C(C_arcbt_host, d$X, d$Y, d$off, d$R, as.double(curve[, 1]), as.double(curve[, 2]),
           nrow(curve), as.double(eps), as.integer(dense), as.integer(it1), as.integer(it2), as.integer(keep),
@@ -1703,7 +1826,8 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
           as.integer(piece), L$np, L$h, L$k, L$off, as.double(bounds), as.integer(B),
           .arc_seeds(seed, d$R), as.integer(block), as.integer(it2), .arc_gate(gate), bl = integer(d$R),
           out = double(4 * B * d$R), NAOK = TRUE)
-  list(boot = b <- .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h"), d$names), block = r$bl,
+  b <- .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h"), d$names)
+  list(boot = b, block = r$bl,
        lost = colSums(!is.finite(b[, "h", , drop = FALSE]), dims = 2L))
 }
 
@@ -1716,7 +1840,8 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
 #' @param bounds the box \code{(k_lo, k_hi, h_lo, h_hi)}; the submodel is always fitted in it.
 #' @param floors lower bounds on \eqn{h}, deepest first, tried in turn when \code{gate = TRUE}; otherwise
 #'   \code{bounds[3]} is used.
-#' @param gate \code{FALSE} takes the lowest minimum whatever it is; \code{TRUE} takes the first of \code{floors} whose best fit is physical, meaning that
+#' @param gate \code{FALSE} takes the lowest minimum whatever it is; \code{TRUE} takes the first of \code{floors}
+#'   whose best fit is physical, meaning that
 #'   \code{g1 > 0} and the tangent reading lies between 0 and \code{max(x)}, and the fit at the last
 #'   floor if none is; \code{"best"} takes the lowest minimum that is physical in the box
 #'   \code{bounds}, and \code{NaN} where none is found. \code{TRUE} depends on the search: the better
@@ -1824,7 +1949,8 @@ k4_lmom_window <- function(x, y, lin, bounds = c(-0.98, 0.95, -8, 4), window = 2
                            nmodel = 4000L) {
   d <- .arc_runs(x, y)
   lin <- if (is.matrix(lin)) lin else matrix(lin, 1L)
-  if (!is.null(colnames(lin)) && all(c("g0", "m", "g1") %in% colnames(lin))) lin <- lin[, c("g0", "m", "g1"), drop = FALSE]
+  if (!is.null(colnames(lin)) && all(c("g0", "m", "g1") %in% colnames(lin)))
+    lin <- lin[, c("g0", "m", "g1"), drop = FALSE]
   stopifnot(nrow(lin) == d$R, ncol(lin) >= 3L, length(bounds) == 4L, window %% 2 == 1, window >= 1,
             all(diff(d$off) > window), ngrid >= 50L, nmodel >= 50L)
   .arc_sync_threads()
@@ -1873,6 +1999,13 @@ k4_mv_share <- function(A, frac = 0.6) {
 #' minimised over all of it. At a fixed shape the runs separate, so the profile of every run over a
 #' grid of shapes is computed once and shared by all the sets; the lowest minima of the summed profile
 #' start a joint search, and the best results are checked run by run from cold starts and polished.
+#'
+#' The search is not certified. Its known weak case is a run that is fitted best by a curve with a very
+#' long scale and a plateau far beyond the data, so that the curve is close to a power of a linear
+#' function and its sum of squares falls slowly along a ridge (plateaux of \eqn{10^4} to \eqn{10^8}
+#' times the rise observed). On sets containing such runs the result can lie above the minimum, by up to
+#' 1.3 per cent on the archive sets where this was measured (0.9 per cent with \code{dense = TRUE});
+#' sets of ordinary runs were not affected.
 #' @inheritParams k4eq_fit
 #' @param x,y many runs as two lists of vectors.
 #' @param sets a list of integer vectors, each the indices of the runs of one set; by default one set
@@ -1883,10 +2016,10 @@ k4_mv_share <- function(A, frac = 0.6) {
 #'   \code{runs}, a list with one matrix per set, its rows the runs of the set and its columns
 #'   \code{g0, m, g1, mu, sigma, rss}. No run is refused on physical grounds.
 #' @examples
-#' x <- seq(0, 20, length.out = 100)
+#' x <- seq(0, 20, length.out = 60)
 #' f <- function(mu, s, g) 1 + 0.2 * x + g * k4_cdf(x, mu, s, -0.4, 0.3) + sin(4321 * mu * x)
-#' r <- k4_shared_fit(list(x, x, x), list(f(8, 2, 300), f(10, 2.5, 280), f(5, 1.2, 310)),
-#'                    sets = list(1:3, 2:3))
+#' r <- k4_shared_fit(list(x, x), list(f(8, 2, 300), f(10, 2.5, 280)),
+#'                    bounds = c(-0.9, 0.5, -1, 1))
 #' r$fit
 #' @export
 k4_shared_fit <- function(x, y, sets = NULL, bounds = c(-0.98, 0.95, -3, 4), drift = TRUE, dense = FALSE) {
@@ -1924,10 +2057,10 @@ k4_shared_fit <- function(x, y, sets = NULL, bounds = c(-0.98, 0.95, -3, 4), dri
 #' @return a list: \code{stat}, a matrix with one row per problem and columns \code{rss_tr, rss_w,
 #'   lambda_t, lambda_w, n_alloc, min_rss_w}; and \code{p}, a matrix with one column per \code{slack}.
 #' @examples
-#' x <- seq(0, 20, length.out = 80)
+#' x <- seq(0, 20, length.out = 50)
 #' f <- function(mu, h) 1 + 300 * k4_cdf(x, mu, 2, -0.4, h) + sin(4321 * mu * x)
 #' k4_shared_perm(rep(list(x), 4), list(f(8, 0.3), f(8.4, 0.3), f(6, -0.4), f(6.3, -0.4)),
-#'                group = c(1, 1, 2, 2))
+#'                group = c(1, 1, 2, 2), bounds = c(-0.9, 0.5, -1, 1))
 #' @export
 k4_shared_perm <- function(x, y, group, problem = NULL, rss_free = NULL, bounds = c(-0.98, 0.95, -3, 4),
                            drift = TRUE, slack = c(1e-9, 0.01), dense = FALSE, maxalloc = 2e6) {

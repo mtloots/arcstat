@@ -44,3 +44,8 @@ distribution function, whose density is proportional to sqrt(1 + f(x)^2). Requir
 \item \code{rgen()}: random generation from the generated law
 
 }}
+\examples{
+g <- arc_generator(function(z) dnorm(z), -6, 6)
+pgen(0, g)
+dgen(c(-1, 0, 1), g)
+}

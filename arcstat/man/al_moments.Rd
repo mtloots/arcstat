@@ -15,3 +15,7 @@ list with mean, var, support.
 \description{
 Exact mean, variance and support of the arc-length statistic (C back-end)
 }
+\examples{
+m <- al_moments(100L)
+m$mean; m$support
+}

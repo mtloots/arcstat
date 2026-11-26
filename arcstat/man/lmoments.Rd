@@ -18,3 +18,6 @@ the first nmom L-moments; ratios tau_r = L_r/L_2 for r>=3 via lmratios().
 L_r is the shifted-Legendre projection of Q (Hosking's convention): L_r =
 integral_0^1 Q(u) P*_(r-1)(u) du, r>=1, with P*_r the shifted Legendre polynomial (P*_r(1)=1).
 }
+\examples{
+lmoments(arcq(0.5))
+}

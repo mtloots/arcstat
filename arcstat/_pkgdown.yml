@@ -4,9 +4,40 @@ template:
   bootstrap: 5
 
 reference:
-  - title: All functions
-    desc: >
-      Every exported entry point. The computation runs on a shared pure-C back-end that is also
-      bound from Python, and the two front ends are checked against each other value by value.
+  - title: Arc-length goodness of fit
     contents:
-      - matches(".*")
+      - starts_with("al_")
+      - starts_with("bb_")
+  - title: Arc-length families and functionals
+    contents:
+      - arcq
+      - fit_arcq
+      - fit_arcq_cf
+      - arc_generator
+      - lmoments
+      - lmratios
+      - sample_lmoments
+      - starts_with("cf_arclength")
+  - title: Circular families
+    contents:
+      - starts_with("arcc")
+      - fit_arccirc
+      - fit_arccirc_fr
+      - lmom_circ
+      - dtemper_vm
+  - title: Equivalence families
+    contents:
+      - starts_with("eq_")
+      - starts_with("eqfit")
+  - title: Induction curves
+    desc: >
+      Kappa, inverse Gaussian and beta-companion curves, fitted to many runs in one call on the
+      shared C back-end, parallel by OpenMP.
+    contents:
+      - starts_with("k4")
+      - starts_with("wald")
+      - starts_with("bc_")
+      - arc_threads
+  - title: Package
+    contents:
+      - arcstat-package

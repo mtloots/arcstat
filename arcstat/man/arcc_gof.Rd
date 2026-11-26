@@ -27,3 +27,7 @@ The probability-integral transform through the fitted member sends the sample to
 hypothesis, so the reference law of the arc-length spacings statistic is distribution-free and the
 Monte Carlo p-value is exact in level for any number of reference draws.
 }
+\examples{
+th <- rarccirc(200, arccirc(0.4, 0.3))
+arcc_gof(th, fit_arccirc(th), B = 99L)
+}

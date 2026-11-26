@@ -14,10 +14,13 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.path = "man/figures/R
 
 Inference from the **arc length** of statistical functions: a goodness-of-fit test on the arc
 length of the probability plot, distributions built from the arc length of their defining curve,
-the characteristic-function version, the equivalence family, and a Bayesian test.
+the characteristic-function version, the equivalence families, and a Bayesian test; and the
+induction curves of the oxidation-stability standards, fitted, bootstrapped and compared in batches
+of many runs.
 
-Computation runs on a shared pure-C back-end that is also bound from Python, and the two front
-ends are checked against each other value by value.
+Computation runs on a shared pure-C back-end, parallel by OpenMP (`arc_threads()`), that is also
+bound from Python (`pip install arcstat`), and the two front ends are checked against each other
+value by value.
 
 ## Installation
 
@@ -45,3 +48,17 @@ al_test(runif(200))$p.value
 c(normal = cf_arclength_family("normal"),
   exponential = cf_arclength_family("exponential", lambda = 1))
 ```
+
+Induction curves: a kappa curve fitted to each of the eleven runs of `DNase`, and the two
+standard readings of each fit.
+
+```{r induction}
+d <- split(DNase, DNase$Run)
+f <- k4_fit(lapply(d, function(z) log(z$conc)), lapply(d, function(z) z$density),
+            bounds = c(-0.98, 0.95, -5, 4), drift = FALSE)
+round(head(f[, c("k", "h", "a", "b")], 4), 3)
+```
+
+## Citation
+
+`citation("arcstat")`.

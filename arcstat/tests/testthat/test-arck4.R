@@ -4,7 +4,8 @@ test_that("test-arck4", {
   ## density integrates the cdf: finite-difference check
   x <- k4_q(0.5, 0, 1, 0.2, 0.4); eps <- 1e-6
   x <- k4_q(0.5, 0, 1, 0.2, 0.4); eps <- 1e-6
-  expect_lt(abs((k4_cdf(x + eps, 0, 1, 0.2, 0.4) - k4_cdf(x - eps, 0, 1,      0.2, 0.4))/(2 * eps) - k4_pdf(x, 0, 1, 0.2, 0.4)), 1e-05)
+  expect_lt(abs((k4_cdf(x + eps, 0, 1, 0.2, 0.4) - k4_cdf(x - eps, 0, 1,      0.2, 0.4))/(2 * eps) - k4_pdf(x, 0, 1,
+      0.2, 0.4)), 1e-05)
   ## theoretical tau ratios invert through the L-moment fit
   tt <- k4_tau34(0.2, 0.4)
   ft <- k4_fit_lmom(tt[1], tt[2])

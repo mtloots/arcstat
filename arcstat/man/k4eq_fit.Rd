@@ -58,7 +58,8 @@ starts, the best of which are carried to convergence and polished by a simplex. 
 runs share one pool of threads (\code{\link{arc_threads}}); results do not depend on the number.
 }
 \details{
-Unless \code{gate = "best"}, no fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the reading are
+Unless \code{gate = "best"}, no fit is refused on physical grounds. The sign of \eqn{g_1} and the position of the
+  reading are
 the caller's to judge; a caller who gates the free fit in that way must gate both fits, or a ratio
 of the two sums of squares can fall below one.
 }

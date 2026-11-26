@@ -1,0 +1,12 @@
+bibentry(
+  bibtype = "Manual",
+  title   = "{arcstat}: Arc-Length Statistics, Equivalence Families and Induction Curves",
+  author  = person("M. Theodor", "Loots", email = "theo.loots@gmail.com",
+                   comment = c(ORCID = "0000-0001-7722-3913")),
+  year    = "2026",
+  note    = "R package version 0.4.0",
+  url     = "https://CRAN.R-project.org/package=arcstat",
+  textVersion = paste("Loots, M. T. (2026). arcstat: Arc-Length Statistics, Equivalence Families",
+                      "and Induction Curves. R package version 0.4.0.",
+                      "https://CRAN.R-project.org/package=arcstat")
+)

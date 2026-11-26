@@ -77,4 +77,3 @@ test_that("guards: outside the admissible corner the routines must not invent an
   expect_true(!is.finite(eq_bstar(-0.3)) || TRUE)
   expect_true(all(is.finite(eq_ub_quad(al, be))) || TRUE)
 })
-

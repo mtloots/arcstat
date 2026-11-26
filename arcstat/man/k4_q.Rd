@@ -23,3 +23,9 @@ numeric vector
 \description{
 Four-parameter kappa quantile, distribution and density functions
 }
+\examples{
+u <- c(0.1, 0.5, 0.9)
+x <- k4_q(u, 8, 2, -0.3, 0.2)
+k4_cdf(x, 8, 2, -0.3, 0.2)
+k4_pdf(x, 8, 2, -0.3, 0.2)
+}

@@ -51,3 +51,8 @@ from its pipeline's own point fit. Resampling indices come from per-replicate
 splitmix64 streams, so the result is identical whatever the OpenMP thread count and
 identical between the R and Python fronts.
 }
+\examples{
+x <- seq(0, 20, length.out = 120)
+y <- 1 + 300 * k4_cdf(x, 8, 2.5, 0.2, 0.4) + 2 * sin(9871 * seq_along(x))
+k4_mv_boot(x, y, B = 0L, maxit = 300L)$a_pt
+}

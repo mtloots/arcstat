@@ -27,3 +27,7 @@ The posterior probability that the discrepancy exceeds its \code{(1 - level)} qu
 values near one are strong evidence against the hypothesised distribution. Sensitive to local density
 structure (multimodality, clustering, heaping) that the vertical discrepancies miss.
 }
+\examples{
+ref <- bb_ref_disc(60L)
+bb_evidence((1:60 - 0.5) / 60, ref = ref, M = 300L)
+}

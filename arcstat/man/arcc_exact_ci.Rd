@@ -43,3 +43,8 @@ boundary is attained and because the likelihood of this family is unbounded. Bot
 reflection invariants, so the interval brackets \code{|c3|}; the sign requires a reflection-odd
 statistic. Recorded resolution is handled by grouping the reference draws as the data are grouped.
 }
+\examples{
+set.seed(1)
+th <- rarccirc(200, arccirc(0.4))
+arcc_exact_ci(th, B = 99L)[c("lower", "upper")]
+}

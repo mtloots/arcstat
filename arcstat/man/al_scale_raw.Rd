@@ -20,3 +20,7 @@ rather than to \code{\link{al_band_model_star}}. INCONSISTENT: it estimates the 
 by a constant factor that does not vanish as the sample grows. Retained only so that the size of
 the correction can be measured. Use \code{\link{al_scale}}.
 }
+\examples{
+set.seed(1)
+al_scale_raw(rnorm(400, sd = 3))
+}

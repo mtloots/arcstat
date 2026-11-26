@@ -15,3 +15,7 @@ the scalar arc length of the probability-plot ogive.
 \description{
 Arc-length goodness-of-fit statistic (C back-end)
 }
+\examples{
+u <- sort(runif(100))
+al_statistic(u)
+}

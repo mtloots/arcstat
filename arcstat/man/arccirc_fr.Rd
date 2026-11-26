@@ -59,3 +59,7 @@ nor a smoothness constraint arises, and the coefficients are unrestricted.
 \item \code{rarccirc_fr()}: random generation
 
 }}
+\examples{
+fr <- arccirc_fr(c(0.3 + 0.1i))
+darccirc_fr(c(0, 1, 2), fr)
+}

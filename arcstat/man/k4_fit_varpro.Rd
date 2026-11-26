@@ -16,7 +16,8 @@ k4_fit_varpro(
 \arguments{
 \item{x, y}{the curve.}
 
-\item{starts}{a matrix with four columns, \code{(mu, log sigma, k, h)}, one row per start; h is carried directly so negative values are admissible.}
+\item{starts}{a matrix with four columns, \code{(mu, log sigma, k, h)}, one row per start; h is carried directly so
+negative values are admissible.}
 
 \item{maxit}{iterations per Nelder-Mead descent.}
 
@@ -41,4 +42,11 @@ Fits \eqn{y = g_0 + m x + g_1 F(x;\mu,\sigma,k,h)}. The mean curve is linear in 
 coefficients, so they are solved exactly for any shape and only the four shape parameters are
 searched; the multi-start is run in the C back end, in parallel over starts, and the best is
 chosen serially so the answer does not depend on the thread count (see \code{\link{arc_threads}}).
+}
+\examples{
+x <- seq(0, 20, length.out = 120)
+y <- 1 + 0.2 * x + 300 * k4_cdf(x, 9, 2, -0.3, -0.5) + sin(4321 * seq_along(x))
+st <- as.matrix(expand.grid(c(8, 10), log(c(1, 3)), c(-0.5, 0), c(-1, 0.2)))
+f <- k4_fit_varpro(x, y, st, bounds = c(-0.98, 0.95, -60, 4))
+f$theta; f$rss
 }

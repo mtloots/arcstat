@@ -92,6 +92,6 @@ test_that("CHARACTERISTIC FUNCTION: value at zero is one, and it is conjugate-sy
   set.seed(3)
   expect_lt(abs(cf_arclength(rnorm(50000)) - 2), 0.05)
   ## scale equivariance of the family values: the exponential rate rescales the axis only
-  expect_lt(abs(cf_arclength_family("exponential", lambda = 2) - cf_arclength_family("exponential",      lambda = 1)), 1e-09)
+  expect_lt(abs(cf_arclength_family("exponential", lambda = 2) - cf_arclength_family("exponential",
+                                                                                     lambda = 1)), 1e-09)
 })
-

@@ -22,8 +22,13 @@ a list with the coefficients, mean direction, shrink factor and admissibility.
 Sort, apply the circular L-moment weights, invert the exact linear map, factorise: no numerical
 search enters anywhere. The pair (p, mu) is not identified, because shifting the cut is absorbed
 exactly by a phase ramp on the coefficients, so the gauge is fixed by cutting at the sample mean
-direction; compare two fits by the density they imply, not by their coefficients. Following the practice of the linear
+direction; compare two fits by the density they imply, not by their coefficients. Following the practice of the
+  linear
 family, an estimate that leaves the admissible set is reported rather than silently replaced; the
 shrunken spectrum is returned as a labelled fallback because, unlike the linear case, the
 factorisation itself fails without one.
+}
+\examples{
+th <- rarccirc(300, arccirc(0.5, 0.2))
+str(fit_arccirc_fr(th))
 }

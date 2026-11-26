@@ -29,3 +29,10 @@ choice: \code{p = 1} gives the ordinary sum, \code{p = 2} the Euclidean arc leng
 \code{p = Inf} the max-plus (tropical) form \eqn{\max(|dx|, |dy|)}. The three agree to within
 a factor of \eqn{\sqrt{2}}.
 }
+\examples{
+th <- c(0, 300, 8, 2, -0.3, 0.2)
+br <- seq(0, 20, by = 5)
+k4_band_model(th, br)
+x <- seq(0, 20, length.out = 200)
+k4_band_sample(x, th[1] + th[2] * k4_cdf(x, 8, 2, -0.3, 0.2), br)
+}

@@ -38,3 +38,7 @@ in concentration, preserving the mode throughout.
 \item \code{trigmom_temper_vm()}: trigonometric moment of the tempered law
 
 }}
+\examples{
+stats::integrate(function(t) dtemper_vm(t, kappa = 1), 0, 2 * pi)$value
+trigmom_temper_vm(1, kappa = 1)
+}

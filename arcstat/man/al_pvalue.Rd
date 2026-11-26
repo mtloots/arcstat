@@ -17,3 +17,7 @@ the right-tail p-value.
 \description{
 Saddlepoint right-tail probability of the arc-length statistic (C back-end)
 }
+\examples{
+u <- sort(stats::runif(100))
+al_pvalue(al_statistic(u), 100)
+}

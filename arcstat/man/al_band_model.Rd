@@ -19,3 +19,7 @@ the model band arc length.
 \description{
 Band arc length of the normal reference curve (C back-end)
 }
+\examples{
+## the normal reference band arc length grows with the scale
+al_band_model(c(0.5, 1, 2))
+}

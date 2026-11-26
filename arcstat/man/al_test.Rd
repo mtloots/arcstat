@@ -23,3 +23,8 @@ Tests H0: F = F0 via the arc length of the probability plot, with the analytic s
 Powerful against local density structure (multimodality, clustering, oscillation, heaping) that the
 empirical-distribution tests miss; weak against smooth location/scale departures.
 }
+\examples{
+set.seed(1)
+al_test(runif(150))$p.value
+al_test(rbeta(150, 0.5, 0.5))$p.value
+}

@@ -135,3 +135,12 @@ complete manifold-test simulation (truth and two displacement arms, with the opt
 audit certificate). \code{eqfit_estsim} runs the three-estimator study. All outputs are
 byte-identical across thread counts and between the R and Python fronts.
 }
+\examples{
+curve <- cbind(a <- seq(-0.62, -0.51, length.out = 8), sapply(a, eq_bstar))
+x <- 20 * (0:119) / 119
+y <- 1 + 300 * (1:120) / 121 + 3 * sin(4321 * (1:120))
+st <- rbind(c(1, log(300), 0, log(20), 0.3, 0.5))
+f <- eqfit_bc(x, y, st, curve, maxit = 400L)
+f$sse
+eqfit_blocklen(sin(0.05 * (1:300)))
+}

@@ -22,3 +22,7 @@ a matrix with columns \code{arc} and \code{ks}.
 Pools the posterior discrepancies of \code{D} uniform data sets (\code{m} draws each) to give the
 distribution of the discrepancy under the null hypothesis at sample size \code{n}.
 }
+\examples{
+ref <- bb_ref_disc(60L)
+str(ref)
+}

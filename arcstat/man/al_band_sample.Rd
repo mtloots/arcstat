@@ -17,3 +17,7 @@ the sample band arc length, NA when fewer than two points fall in the band.
 \description{
 Sample band arc length of the empirical distribution curve (C back-end)
 }
+\examples{
+set.seed(1)
+al_band_sample(rnorm(400, sd = 2))
+}

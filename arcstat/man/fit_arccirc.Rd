@@ -19,3 +19,7 @@ The modulus of the first trigonometric moment is even in c3 and strictly increas
 identifies the magnitude; the rotation-invariant psi = arg(phi_2) - 2 arg(phi_1), reduced to the
 principal branch, identifies the sign. Reliable sign recovery needs a few thousand observations.
 }
+\examples{
+th <- rarccirc(300, arccirc(0.5, 0.2))
+fit_arccirc(th)[c("c3", "mu")]
+}

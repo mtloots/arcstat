@@ -38,10 +38,18 @@ minimised over all of it. At a fixed shape the runs separate, so the profile of 
 grid of shapes is computed once and shared by all the sets; the lowest minima of the summed profile
 start a joint search, and the best results are checked run by run from cold starts and polished.
 }
+\details{
+The search is not certified. Its known weak case is a run that is fitted best by a curve with a very
+long scale and a plateau far beyond the data, so that the curve is close to a power of a linear
+function and its sum of squares falls slowly along a ridge (plateaux of \eqn{10^4} to \eqn{10^8}
+times the rise observed). On sets containing such runs the result can lie above the minimum, by up to
+1.3 per cent on the archive sets where this was measured (0.9 per cent with \code{dense = TRUE});
+sets of ordinary runs were not affected.
+}
 \examples{
-x <- seq(0, 20, length.out = 100)
+x <- seq(0, 20, length.out = 60)
 f <- function(mu, s, g) 1 + 0.2 * x + g * k4_cdf(x, mu, s, -0.4, 0.3) + sin(4321 * mu * x)
-r <- k4_shared_fit(list(x, x, x), list(f(8, 2, 300), f(10, 2.5, 280), f(5, 1.2, 310)),
-                   sets = list(1:3, 2:3))
+r <- k4_shared_fit(list(x, x), list(f(8, 2, 300), f(10, 2.5, 280)),
+                   bounds = c(-0.9, 0.5, -1, 1))
 r$fit
 }

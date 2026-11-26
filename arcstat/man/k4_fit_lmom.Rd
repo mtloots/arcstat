@@ -50,3 +50,8 @@ A list of fitted parameters, whose components depend on which fitting routine
 Deterministic kappa fits: L-moment shape inversion, quantile-domain arc-length shape fit,
 curve-domain NLS and NALR (banded arc lengths of the running-median presmoothed polyline)
 }
+\examples{
+## invert the L-moment ratios of a member
+tt <- k4_tau34(0.1, 0.4)
+k4_fit_lmom(tt[1], tt[2])
+}

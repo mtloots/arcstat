@@ -52,8 +52,8 @@ evaluated from those fits; the p-value is the share of assignments with an \eqn{
 observed one (\eqn{\Lambda_T} decreases in it).
 }
 \examples{
-x <- seq(0, 20, length.out = 80)
+x <- seq(0, 20, length.out = 50)
 f <- function(mu, h) 1 + 300 * k4_cdf(x, mu, 2, -0.4, h) + sin(4321 * mu * x)
 k4_shared_perm(rep(list(x), 4), list(f(8, 0.3), f(8.4, 0.3), f(6, -0.4), f(6.3, -0.4)),
-               group = c(1, 1, 2, 2))
+               group = c(1, 1, 2, 2), bounds = c(-0.9, 0.5, -1, 1))
 }

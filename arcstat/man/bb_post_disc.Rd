@@ -21,3 +21,7 @@ Draws \code{M} Bayesian-bootstrap (Dirichlet-process, concentration to zero) pos
 arc-length and Kolmogorov--Smirnov discrepancies of the probability-plot ogive for the probability
 integral transforms \code{u}.
 }
+\examples{
+p <- bb_post_disc((1:60 - 0.5) / 60, M = 200L)
+summary(p)
+}

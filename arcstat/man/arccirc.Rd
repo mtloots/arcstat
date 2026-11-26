@@ -63,3 +63,9 @@ The smooth circular arc-length family
 \item \code{rarccirc()}: random generation
 
 }}
+\examples{
+o <- arccirc(0.4, mu = 0.3)
+## the density integrates to one
+stats::integrate(function(t) darccirc(t, o), 0, 2 * pi)$value
+rho_arccirc(o)
+}

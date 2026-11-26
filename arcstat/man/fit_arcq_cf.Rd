@@ -21,3 +21,7 @@ estimator is consistent and asymptotically normal by the delta method. This is t
 record for the order-two family; `fit_arcq` remains available for higher orders, where the
 inversion is done numerically.
 }
+\examples{
+set.seed(1)
+fit_arcq_cf(rnorm(400))
+}

@@ -26,3 +26,6 @@ which differs from \eqn{S(\sigma)} by a constant factor because the square root 
 \eqn{E[E^2] = 2}. The gap does not close as the sample grows. This is the functional
 \code{\link{al_scale}} matches, and matching to it is what makes that estimator consistent.
 }
+\examples{
+al_band_model_star(1, 0.1, 0.9)
+}

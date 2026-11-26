@@ -19,3 +19,6 @@ c(tau3, tau4, l1, l2); NaN where the moments do not exist (\eqn{k \le -1} or
 \description{
 Theoretical L-moment ratios of the standard kappa distribution
 }
+\examples{
+k4_tau34(0.1, 0.4)
+}

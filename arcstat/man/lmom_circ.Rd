@@ -72,3 +72,8 @@ towards the circular uniform until the spectrum is admissible, and REPORT that i
 caller can tell an answer to the question asked from an answer to a nearby one.
 
 }}
+\examples{
+l <- lmom_circ(rarccirc(500L, arccirc(0.8, 0.3)), 3L)
+l
+qmin_rho(0.4)
+}

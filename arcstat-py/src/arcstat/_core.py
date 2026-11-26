@@ -686,7 +686,7 @@ def k4eq_fit(x, y, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), drift=True, gat
     return res + (_rows(list(st), 5),) if gate == "best" else res
 
 _lib.arcbt_host.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip, _ip, _dp, _dp]
-def bc_host_fit(x, y, curve=None, it1=15, it2=200, keep=6, eps=1e-6, dense=False):
+def bc_host_fit(x, y, curve=None, it1=15, it2=200, keep=6, eps=1e-6, dense=True):
     """Beta-companion fits with drift, free and on the equivalence curve (alpha, beta), many runs in
     one call; curve None is the whole curve with beta at least -1 + eps, computed inside; see the R function of the same name. Returns (free, con): per run (g0, m, g1, s, w,
     alpha, beta, rss, a, b)."""

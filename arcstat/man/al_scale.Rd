@@ -26,3 +26,10 @@ quantity converges to \eqn{S^*} rather than to \eqn{S}, so that estimator is bia
 factor that does not vanish with the sample size, about five per cent high at the standard normal
 on the default band. \code{\link{al_scale_raw}} retains the uncorrected form for comparison.
 }
+\examples{
+set.seed(1)
+x <- rnorm(400, sd = 3)
+al_scale(x)
+## scale equivariance
+al_scale(7 * x) / al_scale(x)
+}

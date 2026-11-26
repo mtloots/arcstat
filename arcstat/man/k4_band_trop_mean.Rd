@@ -32,3 +32,7 @@ consecutive increments share an observation, and although the noise increments c
 summing as if independent understates a band's variance by roughly a fifth. That correction is not
 elementary and is deliberately not supplied.
 }
+\examples{
+x <- seq(0, 20, length.out = 200)
+k4_band_trop_mean(x, c(0, 300, 8, 2, -0.3, 0.2), sigma = 1, breaks = c(0, 10, 20))
+}

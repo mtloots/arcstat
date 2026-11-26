@@ -8,7 +8,7 @@ R1 <- kappa_run(4321, -0.3, 0.2); R2 <- kappa_run(977, 0.1, -0.4, 90L)
 X <- list(R1$x, R2$x); Y <- list(R1$y, R2$y)
 box <- c(-0.98, 0.95, -60, 4)
 curve <- cbind(seq(-0.62, -0.51, length.out = 8), vapply(seq(-0.62, -0.51, length.out = 8), eq_bstar, 0))
-ob <- function(x, y, F) sum(stats::lm.fit(cbind(1, x, F), y)$residuals^2)
+ob <- function(x, y, Fv) sum(stats::lm.fit(cbind(1, x, Fv), y)$residuals^2)
 free <- function(r) {
   f <- k4_fit_varpro(r$x, r$y, rbind(c(9, log(2), -0.1, 0.1), c(9, log(2), 0, -0.5)), bounds = box)
   c(f$theta[1], f$drift, f$theta[2:6])
@@ -34,7 +34,10 @@ test_that("results are bit-identical on 1, 2 and 8 threads", {
     e <- k4eq_fit(X, Y)
     list(e, k4eq_fit(X, Y, cbind(seq(-1, 0.4, 0.2), k4_locus_k(seq(-1, 0.4, 0.2)))),
          bc_host_fit(X, Y, curve, keep = 3L), k4_fit(X, Y, gate = TRUE, gev = TRUE),
-         k4eq_fit(X, Y, gate = "best"), k4_fit(X, Y, gate = "best", infimum = TRUE), k4eq_boot(X, Y, e$fit, B = 3L, gate = "best"), wald_fit(X, Y), k4_fit(X, Y, drift = FALSE), k4_shared_fit(c(X, X), c(Y, lapply(Y, rev)), sets = list(1:4, 1:2)), k4_lmom_window(X[1], Y[1], c(1, 0.2, 300), ngrid = 400L, nmodel = 400L),
+         k4eq_fit(X, Y, gate = "best"), k4_fit(X, Y, gate = "best", infimum = TRUE),
+         k4eq_boot(X, Y, e$fit, B = 3L, gate = "best"), wald_fit(X, Y), k4_fit(X, Y, drift = FALSE),
+         k4_shared_fit(c(X, X), c(Y, lapply(Y, rev)), sets = list(1:4, 1:2)),
+         k4_lmom_window(X[1], Y[1], c(1, 0.2, 300), ngrid = 400L, nmodel = 400L),
          k4_boot(X, Y, fit, box, gev = c(FALSE, TRUE), B = 6L), k4eq_boot(X, Y, e$fit, B = 6L),
          k4_mv_boot(R2$x, R2$y, B = 2L, bounds = box, maxit = 300L),
          k4_fit_varpro(R1$x, R1$y, rbind(c(9, log(2), 0, 0.1), c(8, 0, 0, -1)), bounds = box),
@@ -97,8 +100,8 @@ test_that("companion host: objective, exact ends, constrained never below free",
   for (r in 1:2) for (m in c("free", "con")) {
     p <- h[[m]][r, ]
     z <- (X[[r]] - p[["s"]]) / p[["w"]]
-    F <- stats::qbeta(pmin(pmax(z, 0), 1), p[["alpha"]] + 1, p[["beta"]] + 1)
-    expect_equal(p[["rss"]], ob(X[[r]], Y[[r]], F), tolerance = 1e-7)
+    Fv <- stats::qbeta(pmin(pmax(z, 0), 1), p[["alpha"]] + 1, p[["beta"]] + 1)
+    expect_equal(p[["rss"]], ob(X[[r]], Y[[r]], Fv), tolerance = 1e-7)
   }
   expect_equal(unname(h$con[, "beta"]), stats::approx(curve[, 1], curve[, 2], h$con[, "alpha"])$y, tolerance = 1e-12)
 })
@@ -137,8 +140,10 @@ test_that("free kappa fit: objective, submodel, gate, and not above Nelder-Mead"
   expect_true(all(g[, "h"] == 0) && all(g[, "rss"] >= f[, "rss"]))
   for (r in 1:2) {
     p <- f[r, ]
-    expect_equal(p[["rss"]], ob(X[[r]], Y[[r]], k4_cdf(X[[r]], p[["mu"]], p[["sigma"]], p[["k"]], p[["h"]])), tolerance = 1e-11)
-    v <- k4_fit_varpro(X[[r]], Y[[r]], as.matrix(expand.grid(c(7, 10), log(c(1, 3)), c(-0.4, 0.2), c(-1, 0.1))), bounds = box)
+    expect_equal(p[["rss"]], ob(X[[r]], Y[[r]], k4_cdf(X[[r]], p[["mu"]], p[["sigma"]], p[["k"]], p[["h"]])),
+                 tolerance = 1e-11)
+    v <- k4_fit_varpro(X[[r]], Y[[r]], as.matrix(expand.grid(c(7, 10), log(c(1, 3)), c(-0.4, 0.2), c(-1, 0.1))),
+                       bounds = box)
     expect_lt(p[["rss"]], v$rss * (1 + 1e-9))
     d <- length(X[[r]]) * log(g[r, "rss"] / f[r, "rss"]) - 2
     expect_equal(s[[r, "gev"]], as.numeric(d < 0))
@@ -163,15 +168,17 @@ test_that("the whole companion curve, and drift in every pipeline", {
 
 test_that("drift-free fits are the two-column least squares at their shape, never below the drifted fit", {
   f <- k4_fit(X, Y); n <- k4_fit(X, Y, drift = FALSE); q <- k4eq_fit(X, Y, drift = FALSE)$fit
-  expect_true(all(n[, "m"] == 0) && all(q[, "m"] == 0) && all(n[, "rss"] >= f[, "rss"]) && all(q[, "rss"] >= n[, "rss"] * (1 - 1e-9)))
+  expect_true(all(n[, "m"] == 0) && all(q[, "m"] == 0) && all(n[, "rss"] >= f[, "rss"]) && all(q[, "rss"] >= n[,
+      "rss"] * (1 - 1e-9)))
   for (r in 1:2) for (p in list(n[r, ], q[r, ])) {
-    F <- k4_cdf(X[[r]], p[["mu"]], p[["sigma"]], p[["k"]], p[["h"]])
-    expect_equal(p[["rss"]], sum(stats::lm.fit(cbind(1, F), Y[[r]])$residuals^2), tolerance = 1e-11)
+    Fv <- k4_cdf(X[[r]], p[["mu"]], p[["sigma"]], p[["k"]], p[["h"]])
+    expect_equal(p[["rss"]], sum(stats::lm.fit(cbind(1, Fv), Y[[r]])$residuals^2), tolerance = 1e-11)
   }
 })
 
 test_that("Wald: distribution function, readings against the definition, fit", {
-  pw <- function(x, mu, l) { s <- sqrt(l / x); pnorm(s * (x / mu - 1)) + exp(2 * l / mu + pnorm(-s * (x / mu + 1), log.p = TRUE)) }
+  pw <- function(x, mu, l) { s <- sqrt(l / x); pnorm(s * (x / mu - 1)) + exp(2 * l / mu + pnorm(-s * (x / mu + 1),
+                                                                                                log.p = TRUE)) }
   x <- c(0.01, 0.5, 3, 9, 40)
   expect_equal(wald_cdf(x, 9, 4), pw(x, 9, 4), tolerance = 1e-12)
   expect_identical(wald_cdf(c(-1, 0), 9, 4), c(0, 0))
@@ -190,7 +197,9 @@ test_that("Wald: distribution function, readings against the definition, fit", {
   f <- wald_fit(R1$x, y)[1, ]
   expect_equal(unname(f[c("mu", "lambda", "m")]), c(9, 150, 0.2), tolerance = 1e-5)
   g <- wald_fit(X, Y)
-  for (r in 1:2) expect_equal(g[[r, "rss"]], ob(X[[r]], Y[[r]], pw(pmax(X[[r]], 1e-12), g[r, "mu"], g[r, "lambda"])), tolerance = 1e-9)
+  for (r in 1:2) expect_equal(g[[r, "rss"]], ob(X[[r]], Y[[r]], pw(pmax(X[[r]], 1e-12), g[r, "mu"], g[r,
+                                                                                                      "lambda"])),
+      tolerance = 1e-9)
 })
 
 test_that("windowed L-moment matching is the R construction and recovers a shape of either sign", {
@@ -198,11 +207,12 @@ test_that("windowed L-moment matching is the R construction and recovers a shape
   for (h in c(0.3, -0.5)) {
     y <- 1 + 300 * k4_cdf(x, 9, 2, -0.2, h)
     L <- k4_lmom_window(x, y, c(1, 0, 300), bounds = c(-0.98, 0.95, -8, 4))[1, ]
-    F <- cummax(pmin(pmax((as.numeric(stats::runmed(y, 21)) - 1) / 300, 0), 1)); kp <- F > 1e-6 & F < 1 - 1e-6
-    a <- max(0.005, min(F[kp])); b <- min(0.995, max(F[kp])); u <- seq(a, b, length.out = 3000)
+    Fh <- cummax(pmin(pmax((as.numeric(stats::runmed(y, 21)) - 1) / 300, 0), 1)); kp <- Fh > 1e-6 & Fh < 1 - 1e-6
+    a <- max(0.005, min(Fh[kp])); b <- min(0.995, max(Fh[kp])); u <- seq(a, b, length.out = 3000)
     tau <- function(u, Q) { w <- c(diff(u), utils::tail(diff(u), 1)); Q <- Q - sum(w * Q) / sum(w)
-      c2 <- sum(w * Q * (2 * u - 1)); c(sum(w * Q * (6 * u^2 - 6 * u + 1)), sum(w * Q * (20 * u^3 - 30 * u^2 + 12 * u - 1))) / c2 }
-    e <- tau(u, stats::approx(F[kp], x[kp], xout = u, ties = "ordered")$y)
+      c2 <- sum(w * Q * (2 * u - 1)); c(sum(w * Q * (6 * u^2 - 6 * u + 1)),
+                                        sum(w * Q * (20 * u^3 - 30 * u^2 + 12 * u - 1))) / c2 }
+    e <- tau(u, stats::approx(Fh[kp], x[kp], xout = u, ties = "ordered")$y)
     expect_equal(unname(L[c("t3", "t4")]), e, tolerance = 1e-9)
     um <- seq(a, b, length.out = 4000)
     expect_lt(sum((tau(um, k4_q(um, 0, 1, L[["k"]], L[["h"]])) - e)^2), 1e-12)
@@ -233,7 +243,8 @@ test_that("gated constrained fit: the ungated one where that is physical, none w
 test_that("multiverse components are the covariance identity", {
   set.seed(3); A <- matrix(stats::rnorm(240), 40) + rep(1:6, each = 40) / 10 + stats::rnorm(40)
   C <- stats::cov(A); v <- mean(diag(C)); w <- v - mean(C[upper.tri(C)]); m <- stats::var(colMeans(A))
-  expect_equal(k4_mv_share(A)[c("v", "w", "delta2", "tau2")], c(v = v, w = w, delta2 = max(0, m - w / 40), tau2 = max(0, m - w * 41 / 40)), tolerance = 1e-10)
+  expect_equal(k4_mv_share(A)[c("v", "w", "delta2", "tau2")], c(v = v, w = w, delta2 = max(0, m - w / 40),
+                                                                tau2 = max(0, m - w * 41 / 40)), tolerance = 1e-10)
   B <- A; B[1:30, 2] <- NaN; B[1, 1] <- NaN
   expect_equal(k4_mv_share(B), k4_mv_share(A[-1, -2]), tolerance = 1e-12)
 })
@@ -245,21 +256,25 @@ test_that("shared shape: the least squares of the model, never above a pinned re
   r <- k4_shared_fit(x, y, sets = list(1:4, 1:2, 3:4))
   for (s in 1:3) {
     m <- r$runs[[s]]; ix <- list(1:4, 1:2, 3:4)[[s]]
-    v <- sum(sapply(seq_along(ix), function(j) ob(x[[ix[j]]], y[[ix[j]]], k4_cdf(x[[ix[j]]], m[j, "mu"], m[j, "sigma"], r$fit[s, "k"], r$fit[s, "h"]))))
+    v <- sum(sapply(seq_along(ix), function(j) ob(x[[ix[j]]], y[[ix[j]]], k4_cdf(x[[ix[j]]], m[j, "mu"], m[j,
+      "sigma"], r$fit[s, "k"], r$fit[s, "h"]))))
     expect_equal(v, unname(r$fit[s, "rss"]), tolerance = 1e-10)
     st <- cbind(as.matrix(expand.grid(c(4, 6, 8, 10), log(c(1, 2, 4)))), r$fit[s, "k"], r$fit[s, "h"])
-    pin <- sum(sapply(ix, function(j) k4_fit_varpro(x[[j]], y[[j]], st, 1500L, c(r$fit[s, "k"] - 1e-9, r$fit[s, "k"] + 1e-9, -3, 4), hfix = r$fit[s, "h"])$rss))
+    pin <- sum(sapply(ix, function(j) k4_fit_varpro(x[[j]], y[[j]], st, 1500L, c(r$fit[s, "k"] - 1e-9, r$fit[s,
+      "k"] + 1e-9, -3, 4), hfix = r$fit[s, "h"])$rss))
     expect_lt(r$fit[s, "rss"], pin * (1 + 1e-7))
   }
   expect_lt(max(abs(unname(r$fit[2:3, "h"]) - c(0.3, -0.4))), 0.25)    # shape is weakly determined by two runs
   p <- k4_shared_perm(x, y, group = c(1, 1, 2, 2), rss_free = 1, slack = c(1e-9, 0.5))
-  expect_equal(unname(p$stat[1, c("rss_tr", "rss_w")]), unname(c(r$fit[1, "rss"], sum(r$fit[2:3, "rss"]))), tolerance = 1e-6)
+  expect_equal(unname(p$stat[1, c("rss_tr", "rss_w")]), unname(c(r$fit[1, "rss"], sum(r$fit[2:3, "rss"]))),
+               tolerance = 1e-6)
   expect_equal(unname(p$stat[1, "n_alloc"]), 6)
   expect_equal(unname(p$p[1, 1]), 2 / 6)                  # the observed split and its mirror
   expect_gte(p$p[1, 2], p$p[1, 1])
   ## the permutation sums are those of the fits of the sets they are built from
   q <- k4_shared_fit(x, y, sets = list(c(1, 3), c(2, 4), c(1, 4), c(2, 3)))
-  expect_equal(unname(p$stat[1, "min_rss_w"]), min(sum(r$fit[2:3, "rss"]), sum(q$fit[1:2, "rss"]), sum(q$fit[3:4, "rss"])), tolerance = 1e-6)
+  expect_equal(unname(p$stat[1, "min_rss_w"]), min(sum(r$fit[2:3, "rss"]), sum(q$fit[1:2, "rss"]), sum(q$fit[3:4,
+      "rss"])), tolerance = 1e-6)
 })
 
 test_that("free fit reaches minima with k far below -1", {

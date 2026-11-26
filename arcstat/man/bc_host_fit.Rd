@@ -12,7 +12,7 @@ bc_host_fit(
   it2 = 200L,
   keep = 6L,
   eps = 1e-06,
-  dense = FALSE
+  dense = TRUE
 )
 }
 \arguments{
@@ -28,7 +28,16 @@ increasing in alpha, interpolated linearly, in which alpha is held.}
 
 \item{eps}{how close to -1 the exponents may come.}
 
-\item{dense}{use 16 (free) and 8 (constrained) times as many starts.}
+\item{dense}{\code{TRUE} (the default) uses 16 (free) and 8 (constrained) times as many starts as
+\code{FALSE}, which is about three times faster. On the 98 induction runs of the archive the quick
+search stopped above the dense one on 84 constrained fits (by up to a factor of 14 on one run);
+the dense search left no gap of more than 7.4e-6 relative to a heavier search (16 kept starts,
+600 iterations) except where the fit runs along a boundary ridge: an exponent tending to -1 while
+the scale \code{w} grows, on which the sum of squares falls slowly and the minimum is an infimum.
+There the heavier search went lower by at most 0.16 per cent on 27 constrained fits (24 with beta
+at the boundary) and 0.65 per cent on 3 free fits. The readings moved by less than 4e-4 except on
+the degenerate Marula runs, whose readings lie far before the data (below -37) and moved by up to
+240; on such runs a reading is not determined by the data.}
 }
 \value{
 a list of two matrices, \code{free} and \code{con}, with one row per run and columns
@@ -43,8 +52,8 @@ point of the free family and is also a start of the free fit, so the constrained
 never below the free one.
 }
 \examples{
-curve <- cbind(a <- seq(-0.62, -0.51, length.out = 12), sapply(a, eq_bstar))
-x <- seq(0, 20, length.out = 120)
+curve <- cbind(a <- seq(-0.62, -0.51, length.out = 6), sapply(a, eq_bstar))
+x <- seq(0, 20, length.out = 50)
 y <- 2 + 0.1 * x + 250 * bc_cdf((x - 1) / 17 * beta(0.4, 0.6), -0.6, -0.4) + cos(999 * x)
 h <- bc_host_fit(x, y, curve)
 h$con[, "rss"] / h$free[, "rss"]

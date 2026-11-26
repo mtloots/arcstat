@@ -38,3 +38,9 @@ The quantile function \eqn{Q(u)} is the integral of \eqn{q} from zero, so \code{
   \code{a} and \code{b} by up to 5 per cent for \eqn{\alpha} between \eqn{-0.6435} and
   \eqn{-0.505}; the gap \code{D} was almost unaffected.
 }
+\examples{
+## on the equivalence curve the two readings coincide
+al <- -0.60
+r <- eq_readings(al, eq_bstar(al))
+r
+}
