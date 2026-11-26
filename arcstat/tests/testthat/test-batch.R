@@ -34,7 +34,7 @@ test_that("results are bit-identical on 1, 2 and 8 threads", {
     e <- k4eq_fit(X, Y)
     list(e, k4eq_fit(X, Y, cbind(seq(-1, 0.4, 0.2), k4_locus_k(seq(-1, 0.4, 0.2)))),
          bc_host_fit(X, Y, curve, keep = 3L), k4_fit(X, Y, gate = TRUE, gev = TRUE),
-         k4eq_fit(X, Y, gate = "best"), k4_fit(X, Y, gate = "best", infimum = TRUE), k4eq_boot(X, Y, e$fit, B = 3L, gate = "best"), wald_fit(X, Y), k4_fit(X, Y, drift = FALSE), k4_lmom_window(X[1], Y[1], c(1, 0.2, 300), ngrid = 400L, nmodel = 400L),
+         k4eq_fit(X, Y, gate = "best"), k4_fit(X, Y, gate = "best", infimum = TRUE), k4eq_boot(X, Y, e$fit, B = 3L, gate = "best"), wald_fit(X, Y), k4_fit(X, Y, drift = FALSE), k4_shared_fit(c(X, X), c(Y, lapply(Y, rev)), sets = list(1:4, 1:2)), k4_lmom_window(X[1], Y[1], c(1, 0.2, 300), ngrid = 400L, nmodel = 400L),
          k4_boot(X, Y, fit, box, gev = c(FALSE, TRUE), B = 6L), k4eq_boot(X, Y, e$fit, B = 6L),
          k4_mv_boot(R2$x, R2$y, B = 2L, bounds = box, maxit = 300L),
          k4_fit_varpro(R1$x, R1$y, rbind(c(9, log(2), 0, 0.1), c(8, 0, 0, -1)), bounds = box),
@@ -236,4 +236,35 @@ test_that("multiverse components are the covariance identity", {
   expect_equal(k4_mv_share(A)[c("v", "w", "delta2", "tau2")], c(v = v, w = w, delta2 = max(0, m - w / 40), tau2 = max(0, m - w * 41 / 40)), tolerance = 1e-10)
   B <- A; B[1:30, 2] <- NaN; B[1, 1] <- NaN
   expect_equal(k4_mv_share(B), k4_mv_share(A[-1, -2]), tolerance = 1e-12)
+})
+
+test_that("shared shape: the least squares of the model, never above a pinned refit, and the permutation", {
+  f <- function(mu, s, g, h, e) 1 + 0.2 * R1$x + g * k4_cdf(R1$x, mu, s, -0.4, h) + sin(e * seq_along(R1$x))
+  y <- list(f(8, 2, 300, 0.3, 11), f(10, 2.5, 280, 0.3, 13), f(5, 1.2, 310, -0.4, 17), f(6, 1.5, 290, -0.4, 19))
+  x <- rep(list(R1$x), 4)
+  r <- k4_shared_fit(x, y, sets = list(1:4, 1:2, 3:4))
+  for (s in 1:3) {
+    m <- r$runs[[s]]; ix <- list(1:4, 1:2, 3:4)[[s]]
+    v <- sum(sapply(seq_along(ix), function(j) ob(x[[ix[j]]], y[[ix[j]]], k4_cdf(x[[ix[j]]], m[j, "mu"], m[j, "sigma"], r$fit[s, "k"], r$fit[s, "h"]))))
+    expect_equal(v, unname(r$fit[s, "rss"]), tolerance = 1e-10)
+    st <- cbind(as.matrix(expand.grid(c(4, 6, 8, 10), log(c(1, 2, 4)))), r$fit[s, "k"], r$fit[s, "h"])
+    pin <- sum(sapply(ix, function(j) k4_fit_varpro(x[[j]], y[[j]], st, 1500L, c(r$fit[s, "k"] - 1e-9, r$fit[s, "k"] + 1e-9, -3, 4), hfix = r$fit[s, "h"])$rss))
+    expect_lt(r$fit[s, "rss"], pin * (1 + 1e-7))
+  }
+  expect_lt(max(abs(unname(r$fit[2:3, "h"]) - c(0.3, -0.4))), 0.25)    # shape is weakly determined by two runs
+  p <- k4_shared_perm(x, y, group = c(1, 1, 2, 2), rss_free = 1, slack = c(1e-9, 0.5))
+  expect_equal(unname(p$stat[1, c("rss_tr", "rss_w")]), unname(c(r$fit[1, "rss"], sum(r$fit[2:3, "rss"]))), tolerance = 1e-6)
+  expect_equal(unname(p$stat[1, "n_alloc"]), 6)
+  expect_equal(unname(p$p[1, 1]), 2 / 6)                  # the observed split and its mirror
+  expect_gte(p$p[1, 2], p$p[1, 1])
+  ## the permutation sums are those of the fits of the sets they are built from
+  q <- k4_shared_fit(x, y, sets = list(c(1, 3), c(2, 4), c(1, 4), c(2, 3)))
+  expect_equal(unname(p$stat[1, "min_rss_w"]), min(sum(r$fit[2:3, "rss"]), sum(q$fit[1:2, "rss"]), sum(q$fit[3:4, "rss"])), tolerance = 1e-6)
+})
+
+test_that("free fit reaches minima with k far below -1", {
+  y <- 1 + 0.1 * R1$x + 400 * k4_cdf(R1$x, 9, 6, -4, 0.2) + sin(4321 * seq_along(R1$x))
+  a <- k4_fit(R1$x, y, bounds = c(-30, 0.95, -60, 4)); d <- k4_fit(R1$x, y, bounds = c(-30, 0.95, -60, 4), dense = TRUE)
+  expect_lt(a[1, "rss"], d[1, "rss"] * (1 + 1e-6))
+  expect_lt(abs(a[1, "k"] + 4), 1)
 })

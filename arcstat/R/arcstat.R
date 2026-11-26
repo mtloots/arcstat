@@ -1727,6 +1727,8 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
 #' @param infimum with \code{gate = "best"}, also report the status and the infimum over the physical
 #'   set of the four-parameter family, as columns \code{status, inf_rss, inf_k, inf_h, inf_a} (see
 #'   \code{\link{k4eq_fit}}). They describe the search with h free; the fit does not change.
+#' @param dense use about ten times as many starts at negative \eqn{k} (in the coordinates of the lower end
+#'   of the support, which the search also uses for \eqn{k < -0.15}).
 #' @return a matrix with one row per run and columns \code{g0, m, g1, mu, sigma, k, h, rss, a, b, gev,
 #'   dAIC, h_floor, physical}. \code{gev} is 1 where the submodel was chosen.
 #' @examples
@@ -1736,7 +1738,7 @@ k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), 
 #' @export
 k4_fit <- function(x, y, bounds = c(-0.98, 0.95, -60, 4), floors = c(-60, -8, -3, -1.2, -0.5, 0),
                    gate = FALSE, gev = FALSE, hfix = NA_real_, drift = TRUE, it1 = 12L, it2 = 200L, keep = 8L,
-                   infimum = FALSE) {
+                   infimum = FALSE, dense = FALSE) {
   d <- .arc_runs(x, y)
   stopifnot(length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4], length(hfix) == 1L)
   gate <- if (identical(gate, "best")) 2L else as.integer(isTRUE(gate))
@@ -1746,7 +1748,7 @@ k4_fit <- function(x, y, bounds = c(-0.98, 0.95, -60, 4), floors = c(-60, -8, -3
   .arc_sync_threads()
   r <- .C(C_arcbt_k4fit, d$X, d$Y, d$off, d$R, as.double(bounds), as.double(fl), length(fl),
           as.integer(gate), as.integer(gev), as.double(hfix), as.integer(drift), as.integer(it1),
-          as.integer(it2), as.integer(keep), as.integer(infimum), out = double(14 * d$R),
+          as.integer(it2), as.integer(keep), as.integer(infimum), as.integer(dense), out = double(14 * d$R),
           s = double(5 * d$R), NAOK = TRUE)
   z <- matrix(r$out, d$R, 14, byrow = TRUE, dimnames = list(d$names, c("g0", "m", "g1", "mu", "sigma", "k",
          "h", "rss", "a", "b", "gev", "dAIC", "h_floor", "physical")))
@@ -1861,4 +1863,88 @@ k4_mv_share <- function(A, frac = 0.6) {
   stats::setNames(.C(C_arcbt_mvshare, as.double(t(A)), nrow(A), ncol(A), as.double(frac), out = double(8),
                      NAOK = TRUE)$out,
                   c("M", "B", "v", "w", "delta2", "share_delta", "tau2", "share_tau"))
+}
+
+#' Kappa curves that share one shape, for many sets of runs in one call
+#'
+#' Every run has its own baseline, drift, plateau, location and scale, and the runs of a set share one
+#' shape: \eqn{y = g_{0j} + m_j x + g_{1j} F((x-\mu_j)/\sigma_j; k, h)}. This is the model of time
+#' rescaling, in which the curves differ in the clock and the amplitude only. The sum of squares is
+#' minimised over all of it. At a fixed shape the runs separate, so the profile of every run over a
+#' grid of shapes is computed once and shared by all the sets; the lowest minima of the summed profile
+#' start a joint search, and the best results are checked run by run from cold starts and polished.
+#' @inheritParams k4eq_fit
+#' @param x,y many runs as two lists of vectors.
+#' @param sets a list of integer vectors, each the indices of the runs of one set; by default one set
+#'   of all the runs.
+#' @param drift \code{FALSE} holds every \eqn{m_j} at zero.
+#' @param dense a grid four times as fine, with more starts.
+#' @return a list: \code{fit}, a matrix with one row per set and columns \code{rss, k, h}; and
+#'   \code{runs}, a list with one matrix per set, its rows the runs of the set and its columns
+#'   \code{g0, m, g1, mu, sigma, rss}. No run is refused on physical grounds.
+#' @examples
+#' x <- seq(0, 20, length.out = 100)
+#' f <- function(mu, s, g) 1 + 0.2 * x + g * k4_cdf(x, mu, s, -0.4, 0.3) + sin(4321 * mu * x)
+#' r <- k4_shared_fit(list(x, x, x), list(f(8, 2, 300), f(10, 2.5, 280), f(5, 1.2, 310)),
+#'                    sets = list(1:3, 2:3))
+#' r$fit
+#' @export
+k4_shared_fit <- function(x, y, sets = NULL, bounds = c(-0.98, 0.95, -3, 4), drift = TRUE, dense = FALSE) {
+  d <- .arc_runs(x, y)
+  if (is.null(sets)) sets <- list(seq_len(d$R))
+  n <- lengths(sets); s <- as.integer(unlist(sets))
+  stopifnot(is.list(sets), length(sets) >= 1L, all(n >= 1L), all(s >= 1L & s <= d$R), length(bounds) == 4L,
+            bounds[1] < bounds[2], bounds[3] < bounds[4])
+  .arc_sync_threads()
+  r <- .C(C_arcsh_fit, d$X, d$Y, d$off, d$R, length(sets), s - 1L, as.integer(c(0, cumsum(n))),
+          as.double(bounds), as.integer(drift), as.integer(dense), out = double(3 * length(sets)),
+          run = double(6 * length(s)), NAOK = TRUE)
+  m <- matrix(r$run, ncol = 6L, byrow = TRUE, dimnames = list(NULL, c("g0", "m", "g1", "mu", "sigma", "rss")))
+  list(fit = matrix(r$out, ncol = 3L, byrow = TRUE, dimnames = list(names(sets), c("rss", "k", "h"))),
+       runs = lapply(split(seq_along(s), rep(seq_along(n), n)), function(i) m[i, , drop = FALSE]))
+}
+
+#' Permutation test of one shared kappa shape against a shape per group
+#'
+#' For the runs of each problem, \eqn{RSS_{TR}} is the sum of squares of one shape for all of them and
+#' \eqn{RSS_W} that of a shape for each group, \eqn{\Lambda_T = RSS_{TR}/RSS_W} and, given the sum of
+#' squares of the free fits, \eqn{\Lambda_W = RSS_W/RSS_{free}}. Every set of runs of a group's size is
+#' fitted once by the search of \code{\link{k4_shared_fit}} and every assignment of the group labels is
+#' evaluated from those fits; the p-value is the share of assignments with an \eqn{RSS_W} not above the
+#' observed one (\eqn{\Lambda_T} decreases in it).
+#' @inheritParams k4_shared_fit
+#' @param group a group label per run.
+#' @param problem a problem label per run, when many tests are made in one call; the runs of a problem
+#'   must be consecutive.
+#' @param rss_free sum of squares of the free fits, one per problem, or \code{NULL}.
+#' @param slack numerical allowances: for each, assignments with an \eqn{RSS_W} of at most
+#'   \eqn{(1 + slack)} times the observed one are counted against rejection. The fits are the minima a
+#'   search found, and an allowance shows whether the verdict depends on its last per cent.
+#' @param maxalloc no p-value with more assignments than this, or with more than 14 runs.
+#' @return a list: \code{stat}, a matrix with one row per problem and columns \code{rss_tr, rss_w,
+#'   lambda_t, lambda_w, n_alloc, min_rss_w}; and \code{p}, a matrix with one column per \code{slack}.
+#' @examples
+#' x <- seq(0, 20, length.out = 80)
+#' f <- function(mu, h) 1 + 300 * k4_cdf(x, mu, 2, -0.4, h) + sin(4321 * mu * x)
+#' k4_shared_perm(rep(list(x), 4), list(f(8, 0.3), f(8.4, 0.3), f(6, -0.4), f(6.3, -0.4)),
+#'                group = c(1, 1, 2, 2))
+#' @export
+k4_shared_perm <- function(x, y, group, problem = NULL, rss_free = NULL, bounds = c(-0.98, 0.95, -3, 4),
+                           drift = TRUE, slack = c(1e-9, 0.01), dense = FALSE, maxalloc = 2e6) {
+  d <- .arc_runs(x, y)
+  pr <- if (is.null(problem)) rep(1L, d$R) else match(problem, unique(problem))
+  stopifnot(length(group) == d$R, length(pr) == d$R, !is.unsorted(pr), all(slack >= 0), length(slack) >= 1L,
+            length(bounds) == 4L, bounds[1] < bounds[2], bounds[3] < bounds[4])
+  Q <- max(pr); g <- integer(d$R)
+  for (q in seq_len(Q)) g[pr == q] <- match(group[pr == q], unique(group[pr == q])) - 1L
+  stopifnot(is.null(rss_free) || length(rss_free) == Q, all(g < 32L))
+  .arc_sync_threads()
+  r <- .C(C_arcsh_perm, d$X, d$Y, d$off, Q, as.integer(c(0, cumsum(tabulate(pr, Q)))), g, as.double(bounds),
+          as.integer(drift), as.integer(dense), as.double(slack), length(slack), as.integer(maxalloc),
+          out = double(5 * Q), p = double(Q * length(slack)), NAOK = TRUE)
+  o <- matrix(r$out, Q, 5L, byrow = TRUE)
+  nm <- if (is.null(problem)) NULL else as.character(unique(problem))
+  list(stat = matrix(c(o[, 1:3], if (is.null(rss_free)) rep(NA_real_, Q) else o[, 2] / rss_free, o[, 4:5]), Q, 6L,
+         dimnames = list(nm, c("rss_tr", "rss_w", "lambda_t", "lambda_w", "n_alloc", "min_rss_w"))),
+       p = matrix(r$p, Q, length(slack), byrow = TRUE, dimnames = list(nm, paste0("slack_", slack))))
 }

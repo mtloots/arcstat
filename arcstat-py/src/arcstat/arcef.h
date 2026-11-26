@@ -9,5 +9,8 @@ void arcef_blockdraw(const double *m0, const double *r0, int n, int bl, unsigned
                      double *yb);
 int arcef_jac(const double *x, int n, double mu, double sg, double al, double be, double zmin,
               double *D);
+/* of arcbatch.c, shared with arcshared.c */
+double arcef_k4F(double t, double k, double h, double *dFdt);
+double arcef_k4Fe(double u, double k, double h, double *dFdu);
 void arcef_bc_ip(const double *th, double *out);
 #endif

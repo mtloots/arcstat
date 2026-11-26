@@ -700,9 +700,9 @@ def bc_host_fit(x, y, curve=None, it1=15, it2=200, keep=6, eps=1e-6, dense=False
                     _i(len(cal)), _d1(eps), _i(int(bool(dense))), _i(it1), _i(it2), _i(keep), f, c)
     return _rows(list(f), 10), _rows(list(c), 10)
 
-_lib.arcbt_k4fit.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _dp, _ip, _ip, _ip, _ip, _ip, _dp, _dp]
+_lib.arcbt_k4fit.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _dp, _ip, _ip, _ip, _ip, _ip, _ip, _dp, _dp]
 def k4_fit(x, y, bounds=(-0.98, 0.95, -60.0, 4.0), floors=(-60, -8, -3, -1.2, -0.5, 0), gate=False,
-           gev=False, hfix=None, drift=True, it1=12, it2=200, keep=8, infimum=False):
+           gev=False, hfix=None, drift=True, it1=12, it2=200, keep=8, infimum=False, dense=False):
     """Free kappa fits with drift from the built-in start grid, many runs in one call; see the R
     function of the same name. gate: False, True or "best". Returns per run (g0, m, g1, mu, sigma, k,
     h, rss, a, b, gev, dAIC, h_floor, physical), and with infimum=True (gate "best", h free) also (status, inf_rss, inf_k,
@@ -717,7 +717,7 @@ def k4_fit(x, y, bounds=(-0.98, 0.95, -60.0, 4.0), floors=(-60, -8, -3, -1.2, -0
     _lib.arcbt_k4fit(_vec(X), _vec(Y), _iv(off), _i(R), _vec(bounds), _vec(fl), _i(len(fl)), _i(g),
                      _i(int(bool(gev))), _d1(float("nan") if hfix is None else float(hfix)),
                      _i(int(bool(drift))), _i(it1), _i(it2), _i(keep),
-                     _i(int(bool(infimum))), out, st)
+                     _i(int(bool(infimum))), _i(int(bool(dense))), out, st)
     res = _rows(list(out), 14)
     return [a + b for a, b in zip(res, _rows(list(st), 5))] if infimum else res
 
@@ -766,6 +766,58 @@ def k4_mv_share(A, frac=0.6):
     out = (_ct.c_double * 8)()
     _lib.arcbt_mvshare(_vec([v for r in A for v in r]), _i(len(A)), _i(len(A[0])), _d1(frac), out)
     return list(out)
+
+_lib.arcsh_fit.argtypes = [_dp, _dp, _ip, _ip, _ip, _ip, _ip, _dp, _ip, _ip, _dp, _dp]
+def k4_shared_fit(x, y, sets=None, bounds=(-0.98, 0.95, -3.0, 4.0), drift=True, dense=False):
+    """Kappa curves sharing one shape, for many sets of runs in one call; see the R function of the
+    same name. sets: lists of 0-based run indices (default one set of all). Returns (fit, runs):
+    per set (rss, k, h), and per set a list of (g0, m, g1, mu, sigma, rss) per member."""
+    X, Y, off, R = _runs(x, y)
+    sets = [list(range(R))] if sets is None else [list(s) for s in sets]
+    flat = [int(v) for s in sets for v in s]
+    if not sets or any(not s for s in sets) or any(not 0 <= v < R for v in flat):
+        raise ValueError("sets must be non-empty lists of run indices")
+    soff = [0]
+    for s in sets:
+        soff.append(soff[-1] + len(s))
+    out = (_ct.c_double * (3 * len(sets)))(); run = (_ct.c_double * (6 * len(flat)))()
+    _lib.arcsh_fit(_vec(X), _vec(Y), _iv(off), _i(R), _i(len(sets)), _iv(flat), _iv(soff), _vec(bounds),
+                   _i(int(bool(drift))), _i(int(bool(dense))), out, run)
+    rows = _rows(list(run), 6)
+    return _rows(list(out), 3), [rows[soff[i]:soff[i + 1]] for i in range(len(sets))]
+
+_lib.arcsh_perm.argtypes = [_dp, _dp, _ip, _ip, _ip, _ip, _dp, _ip, _ip, _dp, _ip, _ip, _dp, _dp]
+def k4_shared_perm(x, y, group, problem=None, rss_free=None, bounds=(-0.98, 0.95, -3.0, 4.0), drift=True,
+                   slack=(1e-9, 0.01), dense=False, maxalloc=2000000):
+    """Permutation test of one shared kappa shape against a shape per group; see the R function of the
+    same name. Returns (stat, p): per problem (rss_tr, rss_w, lambda_t, lambda_w, n_alloc, min_rss_w),
+    and per problem one p-value per slack."""
+    X, Y, off, R = _runs(x, y)
+    prob = [0] * R if problem is None else list(problem)
+    if len(group) != R or len(prob) != R:
+        raise ValueError("group and problem need one label per run")
+    labels, pi = [], []
+    for v in prob:
+        if not labels or labels[-1] != v:
+            if v in labels:
+                raise ValueError("the runs of a problem must be consecutive")
+            labels.append(v)
+        pi.append(len(labels) - 1)
+    Q = len(labels); poff = [0] * (Q + 1); g = []
+    for q in range(Q):
+        idx = [i for i in range(R) if pi[i] == q]
+        poff[q + 1] = poff[q] + len(idx); seen = []
+        for i in idx:
+            if group[i] not in seen:
+                seen.append(group[i])
+            g.append(seen.index(group[i]))
+    out = (_ct.c_double * (5 * Q))(); p = (_ct.c_double * (Q * len(slack)))()
+    _lib.arcsh_perm(_vec(X), _vec(Y), _iv(off), _i(Q), _iv(poff), _iv(g), _vec(bounds), _i(int(bool(drift))),
+                    _i(int(bool(dense))), _vec(slack), _i(len(slack)), _i(int(maxalloc)), out, p)
+    o = _rows(list(out), 5)
+    rf = [float("nan")] * Q if rss_free is None else list(rss_free)
+    stat = [[r[0], r[1], r[2], r[1] / rf[q], r[3], r[4]] for q, r in enumerate(o)]
+    return stat, _rows(list(p), len(slack))
 
 def _seeds(seed, R):
     s = [int(seed) + r for r in range(R)] if not hasattr(seed, "__len__") else [int(v) for v in seed]

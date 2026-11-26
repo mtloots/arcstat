@@ -13,6 +13,7 @@
 #include "arcvc.h"
 #include "arceqfit.h"
 #include "arcbatch.h"
+#include "arcshared.h"
 #include "arcthreads.h"
 
 static const R_CMethodDef CEntries[] = {
@@ -20,12 +21,14 @@ static const R_CMethodDef CEntries[] = {
   {"arcbt_locus_k",     (DL_FUNC) &arcbt_locus_k,     3},
   {"arcbt_k4eq",        (DL_FUNC) &arcbt_k4eq,        17},
   {"arcbt_host",        (DL_FUNC) &arcbt_host,        14},
-  {"arcbt_k4fit",       (DL_FUNC) &arcbt_k4fit,       17},
+  {"arcbt_k4fit",       (DL_FUNC) &arcbt_k4fit,       18},
   {"arcbt_mvshare",     (DL_FUNC) &arcbt_mvshare,     5},
   {"arcbt_wald",        (DL_FUNC) &arcbt_wald,        9},
   {"arcbt_wald_cdf",    (DL_FUNC) &arcbt_wald_cdf,    5},
   {"arcbt_wald_readings",(DL_FUNC) &arcbt_wald_readings,4},
   {"arcbt_lmomw",       (DL_FUNC) &arcbt_lmomw,       10},
+  {"arcsh_fit",         (DL_FUNC) &arcsh_fit,         12},
+  {"arcsh_perm",        (DL_FUNC) &arcsh_perm,        14},
   {"arcbt_k4_boot",     (DL_FUNC) &arcbt_k4_boot,     13},
   {"arcbt_k4eq_boot",   (DL_FUNC) &arcbt_k4eq_boot,   18},
   {"arck4_mv_boot",     (DL_FUNC) &arck4_mv_boot,     11},

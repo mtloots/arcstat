@@ -26,16 +26,19 @@ wd <- wald_fit(x, y); w0 <- wald_fit(x, y, drift = FALSE); f0 <- k4_fit(x, y, dr
 wr <- c(wald_cdf(c(0, 1, 5, 20), 9, 0.4), wald_cdf(c(0.1, 9), 9, 2e6), t(wald_readings(c(9, 1e8, 3), c(150, 15, 3e7))))
 lw <- k4_lmom_window(x[1], y[1], rbind(c(1, 0.2, 300)), ngrid = 500L, nmodel = 500L)
 eg <- k4eq_fit(x, y, gate = "best"); yf <- 300 - 250*k4_cdf(x[[1]], 9, 2, 0.1, -0.5) + sin(4321*(1:120)); en <- k4eq_fit(x[1], list(yf), gate = "best"); ki <- k4_fit(x, y, gate = "best", infimum = TRUE)
-qg <- k4eq_boot(x, y, eg$fit, B = 4L, gate = "best"); b2 <- bc_host_fit(x, y, keep = 2L); mv <- k4_mv_boot(x[[2]], y[[2]], B = 2L, bounds = box, drift = TRUE)
+qg <- k4eq_boot(x, y, eg$fit, B = 4L, gate = "best")
+xs <- c(x, x[1], x[2]); ys <- c(y, list(y[[1]] + cos(77*(1:120))), list(y[[2]] + cos(55*(1:90))))
+sf <- k4_shared_fit(xs, ys, sets = list(1:4, c(1,3), c(2,4), 2:3), bounds = c(-3, 0.95, -3, 4)); sp <- k4_shared_perm(xs, ys, group = c(1,2,1,2), rss_free = 1000, slack = c(1e-9, 0.02))
+kd <- k4_fit(x, y, bounds = c(-5, 0.95, -60, 4), gate = "best", dense = TRUE); b2 <- bc_host_fit(x, y, keep = 2L); mv <- k4_mv_boot(x[[2]], y[[2]], B = 2L, bounds = box, drift = TRUE)
 v <- function(a) as.vector(aperm(a, c(2, 1, 3)))
 vals <- c(k4_locus_k(c(-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6)), t(f$fit), aperm(f$pieces, c(2, 3, 1)), t(g$fit), aperm(g$pieces, c(2, 3, 1)),
-          t(b$free), t(b$con), v(m$boot), m$block, v(i$boot), i$block, v(q$boot), q$block, v(r$boot), r$block, t(u), t(w), t(z), t(b2$free), t(b2$con), mv$a_pt, t(mv$A), t(wd), t(w0), t(f0), t(q0$fit), wr, lw, t(eg$fit), aperm(eg$pieces, c(2, 3, 1)), t(eg$physical), t(en$fit), t(en$physical), t(ki), v(qg$boot), k4_mv_share(mv$A[, 1:4], 0.1), k4_mv_share(i$boot[, c("a","k","h"), 1]))
+          t(b$free), t(b$con), v(m$boot), m$block, v(i$boot), i$block, v(q$boot), q$block, v(r$boot), r$block, t(u), t(w), t(z), t(b2$free), t(b2$con), mv$a_pt, t(mv$A), t(wd), t(w0), t(f0), t(q0$fit), wr, lw, t(eg$fit), aperm(eg$pieces, c(2, 3, 1)), t(eg$physical), t(en$fit), t(en$physical), t(ki), v(qg$boot), k4_mv_share(mv$A[, 1:4], 0.1), k4_mv_share(i$boot[, c("a","k","h"), 1]), t(sf$fit), t(do.call(rbind, sf$runs)), t(sp$stat), sp$p, t(kd))
 cat(ifelse(is.nan(vals), "NaN", sprintf("%.17g", vals)), sep="\n")
 ' > "$OUT/r.txt"
 for T in "" 1 2 8; do
 PYTHONPATH="$PKG/arcstat-py/src" ARCSTAT_THREADS=$T python3 - <<PY > "$OUT/py$T.txt"
 import math
-from arcstat import bc_host_fit, eq_bstar, k4_boot, k4_cdf, k4_fit, k4_lmom_window, k4_locus_k, k4_mv_boot, k4_mv_share, k4eq_boot, k4eq_fit, wald_cdf, wald_fit, wald_readings
+from arcstat import bc_host_fit, eq_bstar, k4_boot, k4_cdf, k4_fit, k4_lmom_window, k4_locus_k, k4_mv_boot, k4_mv_share, k4_shared_fit, k4_shared_perm, k4eq_boot, k4eq_fit, wald_cdf, wald_fit, wald_readings
 xx = lambda n: [20*i/(n-1) for i in range(n)]
 x = [xx(120), xx(90)]
 F1 = k4_cdf(x[0], 9, 2, -0.3, 0.2); F2 = k4_cdf(x[1], 8, 1.5, 0.1, -0.4)
@@ -56,10 +59,13 @@ wr = wald_cdf([0, 1, 5, 20], 9, 0.4) + wald_cdf([0.1, 9], 9, 2e6) + wald_reading
 lw = k4_lmom_window(x[:1], y[:1], [(1, 0.2, 300)], ngrid=500, nmodel=500)
 eg = k4eq_fit(x, y, gate="best"); F3 = k4_cdf(x[0], 9, 2, 0.1, -0.5); yf = [300 - 250*F3[j] + math.sin(4321*(j+1)) for j in range(120)]
 en = k4eq_fit(x[:1], [yf], gate="best"); ki = k4_fit(x, y, gate="best", infimum=True)
-qg = k4eq_boot(x, y, eg[0], B=4, gate="best")[0]; b2 = bc_host_fit(x, y, keep=2); mv = k4_mv_boot(x[1], y[1], B=2, bounds=box, drift=True)
+qg = k4eq_boot(x, y, eg[0], B=4, gate="best")[0]
+xs = x + [x[0], x[1]]; ys = y + [[y[0][j] + math.cos(77*(j+1)) for j in range(120)], [y[1][j] + math.cos(55*(j+1)) for j in range(90)]]
+sf = k4_shared_fit(xs, ys, sets=[[0,1,2,3],[0,2],[1,3],[1,2]], bounds=(-3, 0.95, -3, 4)); sp = k4_shared_perm(xs, ys, group=[1,2,1,2], rss_free=[1000], slack=(1e-9, 0.02))
+kd = k4_fit(x, y, bounds=(-5, 0.95, -60, 4), gate="best", dense=True); b2 = bc_host_fit(x, y, keep=2); mv = k4_mv_boot(x[1], y[1], B=2, bounds=box, drift=True)
 def flat(o):
     return [v for e in o for v in flat(e)] if isinstance(o, (list, tuple)) else [o]
-vals = flat([k4_locus_k([-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6]), f, fp, g, gp, fr, co, m, mb, i, ib, q, qb, r, rb, u, w, z, b2, mv, wd, w0, f0, q0, wr, lw, eg, en[0], en[2], ki, qg, k4_mv_share([r[:4] for r in mv[1]], 0.1), k4_mv_share([[r[0], r[2], r[3]] for r in i[0]])])
+vals = flat([k4_locus_k([-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6]), f, fp, g, gp, fr, co, m, mb, i, ib, q, qb, r, rb, u, w, z, b2, mv, wd, w0, f0, q0, wr, lw, eg, en[0], en[2], ki, qg, k4_mv_share([r[:4] for r in mv[1]], 0.1), k4_mv_share([[r[0], r[2], r[3]] for r in i[0]]), sf[0], [r for s in sf[1] for r in s], sp[0], sp[1], kd])
 print("\n".join("NaN" if math.isnan(v) else "%.17g" % v for v in vals))
 PY
 cmp -s "$OUT/r.txt" "$OUT/py$T.txt" || { echo "VERDICT: MISMATCH (threads '$T')"; diff "$OUT/r.txt" "$OUT/py$T.txt" | head; exit 1; }

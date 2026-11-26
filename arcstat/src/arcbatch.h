@@ -13,7 +13,7 @@ void arcbt_host(const double *X, const double *Y, const int *off, const int *nr,
 void arcbt_k4fit(const double *X, const double *Y, const int *off, const int *nr, const double *bounds,
                  const double *floors, const int *nfl, const int *gate, const int *gevsel,
                  const double *hfix, const int *drift, const int *it1, const int *it2, const int *K,
-                 const int *inf, double *out, double *stat);
+                 const int *inf, const int *dense, double *out, double *stat);
 void arcbt_wald(const double *X, const double *Y, const int *off, const int *nr, const int *drift,
                 const int *it1, const int *it2, const int *K, double *out);
 void arcbt_wald_cdf(const double *x, const int *n, const double *mu, const double *lam, double *out);

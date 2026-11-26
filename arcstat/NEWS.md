@@ -1,3 +1,17 @@
+# arcstat (development version 0.3.1.9006)
+
+* **`k4_fit()` missed minima with k below -1**, the case of a box whose lower bound on k is under
+  -0.98: Moringa-120 at k >= -3, 351.9 against 275.1, and five other runs of the temperature series.
+  For k < -1 location and scale are nearly collinear and the starts did not reach the long scales.
+  The search now also runs in the coordinates of the lower end of the support, from starts on long
+  scales; `dense` multiplies those starts. No fit in the box k >= -0.98 changes on the 98 induction runs
+  and the 65 temperature runs.
+
+* New `k4_shared_fit()`: kappa curves of many runs sharing one shape, each with its own baseline,
+  drift, plateau, location and scale, for many sets of runs in one call; and `k4_shared_perm()`, the
+  permutation test of one shared shape against a shape per group, with Lambda_T, Lambda_W and p-values
+  with a numerical slack.
+
 # arcstat (development version 0.3.1.9005)
 
 * `k4eq_fit(gate = "best")`: the lowest interior physical minimum on the locus, with the status and the

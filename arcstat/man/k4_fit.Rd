@@ -16,7 +16,8 @@ k4_fit(
   it1 = 12L,
   it2 = 200L,
   keep = 8L,
-  infimum = FALSE
+  infimum = FALSE,
+  dense = FALSE
 )
 }
 \arguments{
@@ -47,6 +48,9 @@ it is, the more often an unphysical minimum is the lowest at every floor.}
 \item{infimum}{with \code{gate = "best"}, also report the status and the infimum over the physical
 set of the four-parameter family, as columns \code{status, inf_rss, inf_k, inf_h, inf_a} (see
 \code{\link{k4eq_fit}}). They describe the search with h free; the fit does not change.}
+
+\item{dense}{use about ten times as many starts at negative \eqn{k} (in the coordinates of the lower end
+of the support, which the search also uses for \eqn{k < -0.15}).}
 }
 \value{
 a matrix with one row per run and columns \code{g0, m, g1, mu, sigma, k, h, rss, a, b, gev,
