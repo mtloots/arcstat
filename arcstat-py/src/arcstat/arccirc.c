@@ -15,6 +15,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include "arccirc.h"
+#include "arcthreads.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -675,7 +676,7 @@ void arcc_exact_ci(const double *theta, const int *np, const int *Bp, const int 
     free(u); free(wk);
     out[2] = tobs;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic) num_threads(arc_threads())
 #endif
     for (int j = 0; j < ng; j++) {
         double *ub = (double *)malloc((size_t)n * sizeof(double));

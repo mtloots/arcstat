@@ -389,3 +389,55 @@ def test_locus_against_high_precision_readings():
     for h, k in ((-8.0, -0.06249674542089948), (-3.0, -0.16228952021548154), (0.0, -0.12306932718098818),
                  (0.45, 0.9321745480804188), (0.49, 0.9890420763756562)):
         assert abs(a.k4_locus_k([h])[0] - k) < 4e-15
+
+
+def test_bootstrap_replicates_take_the_drift_setting_of_the_point_fit():
+    # Up to 0.4.0 every replicate was refitted WITH drift whatever the point fit was.
+    n = 100
+    x = [20 * i / (n - 1) for i in range(n)]
+    F = a.k4_cdf(x, 9, 2, a.k4_locus_k([0.2])[0], 0.2)
+    y = [1 + 300 * F[i] + 2 * math.sin(4321 * i) for i in range(n)]
+    f, pieces = a.k4eq_fit(x, y, drift=False)
+    p = f[0]
+    assert p[1] == 0.0
+    G = a.k4_cdf(x, *p[3:7])
+    m = [p[0] + p[2] * G[i] for i in range(n)]
+    r = [y[i] - m[i] for i in range(n)]
+    boot, bl = a.k4eq_boot(x, y, f, B=3, seed=8)
+    assert boot == a.k4eq_boot(x, y, f, B=3, seed=8, drift=False)[0]
+    for b in range(3):
+        assert boot[0][b][4] == 0.0
+        g = a.k4eq_fit(x, _block_replicate(m, r, bl[0], 8, b), drift=False)[0][0]
+        assert abs(g[8] - boot[0][b][0]) < 1e-5
+    assert all(row[4] != 0.0 for row in a.k4eq_boot(x, y, f, B=3, seed=8, drift=True)[0][0])
+    one, _ = a.k4eq_boot(x, y, f, B=1, block=10 ** 6)          # the replicate is the data itself
+    assert abs(one[0][0][0] - p[8]) < 1e-6 and one[0][0][4] == 0.0
+    fr = a.k4_fit(x, y, drift=False)
+    assert fr[0][1] == 0.0
+    kb, _ = a.k4_boot(x, y, fr, (-0.98, 0.95, -60, 4), B=4, seed=3)
+    assert all(row[5] == 0.0 for row in kb[0])
+    one, _ = a.k4_boot(x, y, fr, (-0.98, 0.95, -60, 4), B=1, block=10 ** 6)
+    assert abs(one[0][0][0] - fr[0][8]) < 1e-3 and one[0][0][5] == 0.0
+    try:
+        a.k4eq_boot(x, y, a.k4eq_fit(x, y)[0], B=1, drift=False)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("drift=False for a fit with a slope must be refused")
+
+
+def test_bayesian_evidence_reference_size_and_r_quantile():
+    ref = a.bb_ref_disc(40, D=20, m=4)
+    assert ref.n == 40 and len(ref) == 80
+    u = [((i + 0.5) / 40) ** 1.3 for i in range(40)]
+    col = sorted(r[0] for r in ref)
+    idx = 1 + 79 * 0.9; lo = int(idx); h = idx - lo
+    thr = (1 - h) * col[lo - 1] + h * col[lo]          # R's quantile(type = 7)
+    post = a.bb_post_disc(u, 50, 1)
+    assert a.bb_evidence(u, level=0.9, M=50, ref=ref) == sum(1 for r in post if r[0] > thr) / 50
+    try:
+        a.bb_evidence(u[:30], ref=ref)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a reference for another sample size must be refused")

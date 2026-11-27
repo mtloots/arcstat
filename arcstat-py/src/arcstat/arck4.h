@@ -18,6 +18,8 @@ void arck4_tau34(const double *k, const double *h, const int *nodes, double *out
 double k4_F(double x, double mu, double sg, double k, double h);
 void arck4_fit_varpro(const double *, const double *, const int *, const double *,
                       const int *, const int *, const double *, const double *, double *);
+void arck4_fit_varpro_dr(const double *, const double *, const int *, const double *,
+                         const int *, const int *, const double *, const double *, int, double *);
 void arck4_band_trop_mean(const double *, const int *, const double *, const double *,
                           const double *, const int *, double *);
 void arck4_runmed(const double *y, const int *n, const int *w, double *out);

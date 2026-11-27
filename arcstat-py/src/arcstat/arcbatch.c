@@ -1656,25 +1656,30 @@ static int bt_bootlen(const double *r, int n, int block) {
   int b = block > 0 ? block : arcef_blocklen(r, n);
   return b > n ? n : b;
 }
-/* Moving-block residual bootstrap of a fitted kappa curve with drift, many runs in one call.
+/* Moving-block residual bootstrap of a fitted kappa curve, many runs in one call.
  * fit: 7 per run (g0, m, g1, mu, sg, k, h); box: 4 per run, the box of that run's own point fit;
- * gev[r]: the point fit is the h = 0 submodel, so h is held at 0 in the replicates; block: 0 reads
- * the block length off the residual autocorrelation, 1 resamples singly. Every replicate is refitted
- * by arck4_fit_varpro from the fitted shape. out: 5 x B per run (a, b, k, h, sel): the readings, the
- * fitted shape, and whether n log(rss_0/rss) - 2 < 0 would choose h = 0 (NaN where h is held). bl:
- * the block length used. seed: one per run; replicate b of a run depends on (seed, b) only. */
+ * gev[r]: the point fit is the h = 0 submodel, so h is held at 0 in the replicates; drift[r]: the
+ * point fit carries the linear drift m x (0: m is held at 0 in the mean the residuals are taken from
+ * and in every refit, as in the point fit); gate: 1 keeps a replicate only if its refit is physical
+ * (g1 > 0, tangent reading in [0, max x]), the rule of a point fit made with gate = "best"; block: 0
+ * reads the block length off the residual autocorrelation, 1 resamples singly. Every replicate is
+ * refitted by arck4_fit_varpro_dr from the fitted shape. out: 6 x B per run (a, b, k, h, sel, m): the
+ * readings, the fitted shape, whether n log(rss_0/rss) - 2 < 0 would choose h = 0 (NaN where h
+ * is held), and the fitted slope (exactly 0 without drift). bl: the block length used. seed: one per run; replicate b of a run depends on (seed, b)
+ * only. Every setting of the point fit reaches the replicates: box, submodel, drift and gate. */
 void arcbt_k4_boot(const double *X, const double *Y, const int *off, const int *nr,
-                   const double *fit, const double *box, const int *gev, const int *B,
-                   const int *seed, const int *block, const int *maxit, int *bl, double *out) {
+                   const double *fit, const double *box, const int *gev, const int *drift,
+                   const int *gate, const int *B, const int *seed, const int *block, const int *maxit,
+                   int *bl, double *out) {
   int R = *nr, NB = *B, N = off[R];
-  for (long i = 0; i < 5L * NB * R; i++) out[i] = NAN;
+  for (long i = 0; i < 6L * NB * R; i++) out[i] = NAN;
   double *m0 = (double *)malloc((size_t)N * sizeof(double));
   double *r0 = (double *)malloc((size_t)N * sizeof(double));
   if (m0 && r0) {
     for (int r = 0; r < R; r++) {
       const double *f = fit + 7 * (size_t)r;
       for (int i = off[r]; i < off[r + 1]; i++) {
-        m0[i] = f[0] + f[1] * X[i] + f[2] * k4_F(X[i], f[3], f[4], f[5], f[6]);
+        m0[i] = f[0] + (drift[r] ? f[1] * X[i] : 0.0) + f[2] * k4_F(X[i], f[3], f[4], f[5], f[6]);
         r0[i] = Y[i] - m0[i];
       }
       bl[r] = bt_bootlen(r0 + off[r], off[r + 1] - off[r], *block);
@@ -1692,15 +1697,17 @@ void arcbt_k4_boot(const double *X, const double *Y, const int *off, const int *
       arcef_blockdraw(m0 + off[r], r0 + off[r], n, bl[r], &s, yb);
       double p0[4] = {f[3], log(f[4]), f[5], gev[r] ? 0.0 : f[6]};
       double hold = gev[r] ? 0.0 : NAN, zero = 0.0, o[8], og[8], rd[3];
-      double *res = out + 5 * ((size_t)r * NB + b);
-      arck4_fit_varpro(x, yb, &n, p0, &one, maxit, box + 4 * (size_t)r, &hold, o);
+      double *res = out + 6 * ((size_t)r * NB + b);
+      arck4_fit_varpro_dr(x, yb, &n, p0, &one, maxit, box + 4 * (size_t)r, &hold, drift[r], o);
       if (isfinite(o[7]) && o[7] < 1e11) {
         double th[6] = {o[0], o[2], o[3], o[4], o[5], o[6]};
         arck4_readings(th, &g, rd);
-        res[0] = rd[0]; res[1] = rd[1]; res[2] = o[5]; res[3] = o[6];
+        double ph[10] = {o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7], rd[0], rd[1]};
+        if (*gate && !bt_physical(ph, x, n)) { free(yb); continue; }
+        res[0] = rd[0]; res[1] = rd[1]; res[2] = o[5]; res[3] = o[6]; res[5] = o[1];
         if (!gev[r]) {
           p0[3] = 0.0;
-          arck4_fit_varpro(x, yb, &n, p0, &one, maxit, box + 4 * (size_t)r, &zero, og);
+          arck4_fit_varpro_dr(x, yb, &n, p0, &one, maxit, box + 4 * (size_t)r, &zero, drift[r], og);
           if (isfinite(og[7])) res[4] = (n * log(og[7] / o[7]) - 2.0 < 0.0) ? 1.0 : 0.0;
         }
       }
@@ -1710,24 +1717,27 @@ void arcbt_k4_boot(const double *X, const double *Y, const int *off, const int *
   free(m0); free(r0);
 }
 /* The same for the constrained fit: fit as returned by arcbt_k4eq (its first seven numbers), piece
- * the table piece it lies on (1-based; 1 for the full locus). Replicates are refitted on that piece,
- * from the fitted point. out: 4 x B per run (a, b, k, h). */
+ * the table piece it lies on (1-based; 1 for the full locus), drift[r] whether the point fit carries
+ * the drift m x (0: m is held at 0 in the mean and in every refit; until 0.4.0 every replicate was
+ * refitted WITH drift whatever the point fit was). Replicates are refitted on that piece, from the
+ * fitted point, under the point fit's bounds, gate and drift. out: 5 x B per run (a, b, k, h, m), m the
+ * fitted slope (exactly 0 without drift). */
 void arcbt_k4eq_boot(const double *X, const double *Y, const int *off, const int *nr,
                      const double *fit, const int *piece, const int *npiece, const double *TH,
                      const double *TK, const int *toff, const double *bounds, const int *B,
-                     const int *seed, const int *block, const int *it2, const int *gate, int *bl,
-                     double *out) {
+                     const int *seed, const int *block, const int *it2, const int *gate,
+                     const int *drift, int *bl, double *out) {
   int R = *nr, NB = *B, N = off[R];
-  for (long i = 0; i < 4L * NB * R; i++) out[i] = NAN;
+  for (long i = 0; i < 5L * NB * R; i++) out[i] = NAN;
   double *m0 = (double *)malloc((size_t)N * sizeof(double));
   double *r0 = (double *)malloc((size_t)N * sizeof(double));
   if (m0 && r0) {
-    bt_kdat D = {0, *gate, X, Y, off, *npiece, TH, TK, toff, bounds, 0, 0, 0};
+    bt_kdat D = {0, *gate, X, Y, off, *npiece, TH, TK, toff, bounds, 0, 0, 0};   /* nodrift: per run, below */
     bt_kdat_init(&D);
     for (int r = 0; r < R; r++) {
       const double *f = fit + 7 * (size_t)r;
       for (int i = off[r]; i < off[r + 1]; i++) {
-        m0[i] = f[0] + f[1] * X[i] + f[2] * arcef_k4F((X[i] - f[3]) / f[4], f[5], f[6], NULL);
+        m0[i] = f[0] + (drift[r] ? f[1] * X[i] : 0.0) + f[2] * arcef_k4F((X[i] - f[3]) / f[4], f[5], f[6], NULL);
         r0[i] = Y[i] - m0[i];
       }
       bl[r] = bt_bootlen(r0 + off[r], off[r + 1] - off[r], *block);
@@ -1743,7 +1753,7 @@ void arcbt_k4eq_boot(const double *X, const double *Y, const int *off, const int
       for (int t = 0; t < R * NB; t++) {
         int r = t / NB, b = t % NB, n = off[r + 1] - off[r];
         const double *f = fit + 7 * (size_t)r;
-        double *res = out + 4 * ((size_t)r * NB + b);
+        double *res = out + 5 * ((size_t)r * NB + b);
         if (!(isfinite(f[4]) && f[4] > 0.0 && isfinite(f[6]))) continue;
         W = bt_grow(W, &cap, n);
         double *yb = (double *)malloc((size_t)n * sizeof(double));
@@ -1752,6 +1762,7 @@ void arcbt_k4eq_boot(const double *X, const double *Y, const int *off, const int
           arcef_blockdraw(m0 + off[r], r0 + off[r], n, bl[r], &s, yb);
           bt_task tk = {r, *npiece > 0 ? BT_TAB : BT_FULL, *npiece > 0 ? piece[r] - 1 : 2, 0, 0};
           bt_ctx c; bt_mk_k(&D, &tk, &c);
+          c.nodrift = !drift[r];
           c.y = yb; c.F = W; c.W = W + n;
           double q[BT_DMAX] = {f[3], log(f[4]), *npiece > 0 ? f[6] : log(0.5 - f[6]), 0};
           double v;
@@ -1764,7 +1775,7 @@ void arcbt_k4eq_boot(const double *X, const double *Y, const int *off, const int
             double o[8];
             bt_theta(&c, q, o);
             bt_k_readings(o, res);
-            res[2] = o[5]; res[3] = o[6];
+            res[2] = o[5]; res[3] = o[6]; res[4] = o[1];
           }
         }
         free(yb);

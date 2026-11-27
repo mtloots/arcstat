@@ -365,7 +365,7 @@ bb_post_disc <- function(u, M, seed = 1L) {
 #' @param D number of uniform reference data sets.
 #' @param m posterior draws per data set.
 #' @param seed integer seed for the C back-end.
-#' @return a matrix with columns \code{arc} and \code{ks}.
+#' @return a matrix with columns \code{arc} and \code{ks}, and the sample size as attribute \code{n}.
 #' @examples
 #' ref <- bb_ref_disc(60L)
 #' str(ref)
@@ -373,7 +373,7 @@ bb_post_disc <- function(u, M, seed = 1L) {
 bb_ref_disc <- function(n, D = 300L, m = 16L, seed = 7L) {
   r <- .C(C_bb_ref, n = as.integer(n), D = as.integer(D), m = as.integer(m),
           seed = as.integer(seed), out = double(2L * D * m))$out
-  matrix(r, ncol = 2, byrow = TRUE, dimnames = list(NULL, c("arc", "ks")))
+  structure(matrix(r, ncol = 2, byrow = TRUE, dimnames = list(NULL, c("arc", "ks"))), n = as.integer(n))
 }
 
 #' Bayesian arc-length goodness-of-fit evidence
@@ -385,7 +385,8 @@ bb_ref_disc <- function(n, D = 300L, m = 16L, seed = 7L) {
 #' @param which discrepancy to use, \code{"arc"} (default) or \code{"ks"}.
 #' @param level nominal level defining the reference quantile.
 #' @param M number of posterior draws.
-#' @param ref optional precomputed reference from \code{bb_ref_disc}; computed if \code{NULL}.
+#' @param ref optional precomputed reference from \code{bb_ref_disc}, for the sample size of \code{u}
+#'   (a reference for another size is refused); computed if \code{NULL}.
 #' @param seed integer seed for the C back-end.
 #' @return the posterior evidence against the null, in [0,1].
 #' @examples
@@ -394,6 +395,8 @@ bb_ref_disc <- function(n, D = 300L, m = 16L, seed = 7L) {
 #' @export
 bb_evidence <- function(u, which = "arc", level = 0.95, M = 1500L, ref = NULL, seed = 1L) {
   n <- length(u); if (is.null(ref)) ref <- bb_ref_disc(n)
+  if (!is.null(attr(ref, "n")) && attr(ref, "n") != n)
+    stop("`ref` was computed for samples of size ", attr(ref, "n"), ", not ", n)
   thr <- as.numeric(quantile(ref[, which], level))
   mean(bb_post_disc(u, M, seed)[, which] > thr)
 }
@@ -1166,10 +1169,13 @@ eq_bstar <- function(alpha)
 #'
 #' \code{eqfit_bc} fits the beta-companion sigmoid by deterministic Nelder--Mead from a matrix
 #' of starts (free: six columns; constrained to the equivalence curve: five), returning the
-#' fitted six-parameter theta, the SSE and both readings. \code{eqfit_bc_boot} runs the iid
-#' residual bootstrap of the constrained fit, warm-started, OpenMP over replicates with
-#' per-replicate splitmix64 streams. \code{eqfit_k4eq} and \code{eqfit_k4eq_boot} are the
-#' kappa-family analogues constrained to a locus table h -> k. \code{eqfit_msim} runs the
+#' fitted six-parameter theta, the SSE and both readings. \code{eqfit_bc_boot} runs the
+#' moving-block residual bootstrap (block length from the residual autocorrelation, as
+#' \code{eqfit_blocklen}) of the constrained fit, warm-started, OpenMP over replicates with
+#' per-replicate splitmix64 streams; its \code{th} must be a fit on \code{curve}, since every
+#' replicate is refitted on the curve, and anything else is an error. \code{eqfit_k4eq} and
+#' \code{eqfit_k4eq_boot} are the kappa-family analogues constrained to a locus table h -> k (both
+#' without drift); \code{eqfit_k4eq_boot} must be given the locus table of its point fit. \code{eqfit_msim} runs the
 #' complete manifold-test simulation (truth and two displacement arms, with the optimiser
 #' audit certificate). \code{eqfit_estsim} runs the three-estimator study. All outputs are
 #' byte-identical across thread counts and between the R and Python fronts.
@@ -1230,6 +1236,10 @@ eqfit_bc <- function(x, y, starts, curve, maxit = 4000L){
 #' @rdname eqfit_bc
 #' @export
 eqfit_bc_boot <- function(x, y, th, curve, B = 30L, seed = 4207L, maxit = 2000L){
+  ## the replicates are refitted on the curve, so the point fit must be on it too
+  bc <- stats::approx(curve[, 1], curve[, 2], th[5])$y
+  if (length(th) != 6L || !is.finite(bc) || abs(th[6] - bc) > 1e-9 * max(1, abs(bc)))
+    stop("`th` must be a fit on `curve` (the constrained fit of eqfit_bc): its replicates are refitted on the curve")
   .arc_sync_threads()
   .C("arceqfit_bc_boot", as.double(x), as.double(y), as.integer(length(x)), as.double(th),
      as.integer(B), as.integer(seed), as.integer(maxit),
@@ -1756,17 +1766,38 @@ bc_host_fit <- function(x, y, curve = NULL, it1 = 15L, it2 = 200L, keep = 6L, ep
   stopifnot(length(seed) == R, all(is.finite(seed)))
   as.integer(seed)
 }
+## the drift setting of every run of a point fit: by default read off the fit, whose slope m is exactly 0
+## when the fit was made with drift = FALSE (the back end holds it there); a run given drift = FALSE whose
+## fit carries a slope is refused, because its replicates would be drawn from one mean and fitted by another
+.arc_drift <- function(drift, m, R) {
+  m <- as.double(m)
+  if (is.null(drift)) return(as.integer(!(is.finite(m) & m == 0)))
+  drift <- rep_len(as.logical(drift), R)
+  stopifnot(!anyNA(drift))
+  if (any(!drift & is.finite(m) & m != 0))
+    stop("`drift = FALSE` for a fit with a nonzero slope m: the bootstrap must use the point fit's own setting")
+  as.integer(drift)
+}
 .arc_bootarr <- function(v, B, R, cols, runs)
   aperm(array(v, c(length(cols), B, R), list(cols, NULL, runs)), c(2L, 1L, 3L))
 
-#' Residual bootstraps of kappa fits with drift, many runs in one call
+#' Residual bootstraps of kappa fits, many runs in one call
 #'
 #' \code{k4_boot} resamples the residuals of a fitted free kappa curve in moving blocks and refits it
-#' by \code{\link{k4_fit_varpro}} from the fitted shape, each run in its own box and, where the point
-#' fit is the generalised extreme value submodel, with \eqn{h} held at zero. \code{k4eq_boot} does the
-#' same for a fit of \code{\link{k4eq_fit}}, refitted on the piece of the locus it lies on. Replicate
-#' \eqn{b} of a run draws from its own stream, determined by the run's seed and \eqn{b} alone, so the
-#' result does not depend on the number of threads or on which other runs are in the call.
+#' by the variable-projection search of \code{\link{k4_fit_varpro}} from the fitted shape, each run in
+#' its own box and, where the point fit is the generalised extreme value submodel, with \eqn{h} held at
+#' zero. \code{k4eq_boot} does the same for a fit of \code{\link{k4eq_fit}}, refitted on the piece of
+#' the locus it lies on. Replicate \eqn{b} of a run draws from its own stream, determined by the run's
+#' seed and \eqn{b} alone, so the result does not depend on the number of threads or on which other runs
+#' are in the call.
+#'
+#' Every replicate is fitted under the settings of the point fit: the same box or bounds and locus, the
+#' same submodel, the same rule on physical fits (\code{gate}) and the same drift. The drift setting is
+#' read off the fit by default: a fit made with \code{drift = FALSE} has a slope \code{m} of exactly zero,
+#' and its replicates are then drawn from the mean without drift and refitted without it. (Up to version
+#' 0.4.0 the replicates were always refitted with a drift term, which inflated the spread of a fit made
+#' without one.) The box, bounds, locus and gate cannot be read off the fit and must be passed as they
+#' were given to the point fit.
 #'
 #' The block length is the first lag at which the residual autocorrelation is inside
 #' \eqn{\pm 2/\sqrt n} (at least 2; \eqn{n^{1/3}} if none of the first 200 is); \code{block = 1}
@@ -1776,19 +1807,27 @@ bc_host_fit <- function(x, y, curve = NULL, it1 = 15L, it2 = 200L, keep = 6L, ep
 #'   fit (for \code{k4eq_boot} the \code{fit} of \code{\link{k4eq_fit}}, with its \code{piece}).
 #' @param box a matrix with one row per run, or one row for all: the box \code{(k_lo, k_hi, h_lo,
 #'   h_hi)} of the run's own point fit.
-#' @param gev logical, one per run: the point fit holds \eqn{h = 0}.
+#' @param gev logical, one per run: the point fit holds \eqn{h = 0}. \code{NULL} (the default) reads it from
+#'   a column \code{gev} of \code{fit} (as returned by \code{\link{k4_fit}}), and is \code{FALSE} without one.
+#' @param drift logical, one per run or one for all: the point fit carries the drift \eqn{m x}.
+#'   \code{NULL} (the default) takes it from the fit, \code{FALSE} where \code{m} is exactly zero. A run
+#'   given \code{FALSE} whose fit has a nonzero slope is an error.
 #' @param B replicates.
 #' @param seed one seed per run, or one for all, in which case run \eqn{r} uses \code{seed + r - 1}.
 #' @param block 0 for the block length of the residual autocorrelation, 1 for single resampling, or
 #'   a block length.
 #' @param maxit,it2 Nelder--Mead iterations per pass of a free refit; Levenberg--Marquardt steps of a
 #'   constrained one.
-#' @param gate \code{"best"} keeps a constrained replicate only if its refit, a local search from the
-#'   fitted point, ends at an interior physical minimum; the others are \code{NaN}.
+#' @param gate the rule of the point fit. For \code{k4eq_boot}, \code{"best"} keeps a constrained
+#'   replicate only if its refit, a local search from the fitted point, ends at an interior physical
+#'   minimum; for \code{k4_boot}, \code{"best"} keeps a replicate only if its refit is physical
+#'   (\code{g1 > 0} and the tangent reading between 0 and \code{max(x)}). The others are \code{NaN}.
+#'   Pass \code{"best"} when the point fit was made with \code{gate = "best"}.
 #' @return a list: \code{boot}, an array of \code{B} rows by columns by runs. The columns are the two
 #'   readings \code{a} and \code{b}, the fitted \code{k} and \code{h}, and for \code{k4_boot} also
 #'   \code{sel}, 1 if \eqn{n\log(rss_0/rss)-2<0} would choose \eqn{h=0} on that replicate and
-#'   \code{NaN} where \eqn{h} is held; and \code{block}, the block length of every run. \code{k4eq_boot} adds
+#'   \code{NaN} where \eqn{h} is held; for both, last, \code{m}, the fitted slope of the replicate, exactly
+#'   zero when the point fit has no drift; and \code{block}, the block length of every run. \code{k4eq_boot} adds
 #'   \code{lost}, the number of replicates of every run without a refit.
 #' @examples
 #' x <- seq(0, 20, length.out = 120)
@@ -1798,35 +1837,41 @@ bc_host_fit <- function(x, y, curve = NULL, it1 = 15L, it2 = 200L, keep = 6L, ep
 #' b <- k4_boot(x, y, fit, box = c(-0.98, 0.95, -60, 4), B = 5)
 #' b$boot[, c("a", "b"), 1]
 #' @export
-k4_boot <- function(x, y, fit, box, gev = FALSE, B = 400L, seed = 4207L, block = 0L, maxit = 800L) {
+k4_boot <- function(x, y, fit, box, gev = NULL, B = 400L, seed = 4207L, block = 0L, maxit = 800L,
+                    drift = NULL, gate = FALSE) {
   d <- .arc_runs(x, y)
-  fit <- matrix(as.double(as.matrix(fit)[, 1:7, drop = FALSE]), nrow = d$R)
+  fm <- as.matrix(fit)
+  stopifnot(nrow(fm) == d$R, ncol(fm) >= 7L)
+  if (is.null(gev)) gev <- if ("gev" %in% colnames(fm)) fm[, "gev"] == 1 else FALSE
+  dr <- .arc_drift(drift, fm[, 2L], d$R)
+  fit <- matrix(as.double(fm[, 1:7, drop = FALSE]), nrow = d$R)
   box <- if (is.matrix(box)) box else matrix(box, 1L)
   if (nrow(box) == 1L) box <- box[rep(1L, d$R), , drop = FALSE]
   stopifnot(ncol(box) == 4L, nrow(box) == d$R, B >= 1L, block >= 0L)
   .arc_sync_threads()
   r <- .C(C_arcbt_k4_boot, d$X, d$Y, d$off, d$R, as.double(t(fit)), as.double(t(box)),
-          as.integer(rep_len(as.logical(gev), d$R)), as.integer(B), .arc_seeds(seed, d$R),
+          as.integer(rep_len(as.logical(gev), d$R)), dr, .arc_gate(gate), as.integer(B), .arc_seeds(seed, d$R),
           as.integer(block), as.integer(maxit), bl = integer(d$R),
-          out = double(5 * B * d$R), NAOK = TRUE)
-  list(boot = .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h", "sel"), d$names), block = r$bl)
+          out = double(6 * B * d$R), NAOK = TRUE)
+  list(boot = .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h", "sel", "m"), d$names), block = r$bl)
 }
 #' @rdname k4_boot
 #' @export
 k4eq_boot <- function(x, y, fit, locus = NULL, bounds = c(-0.98, 0.95, -60, 4), B = 400L,
-                      seed = 4207L, block = 0L, it2 = 100L, gate = FALSE) {
+                      seed = 4207L, block = 0L, it2 = 100L, gate = FALSE, drift = NULL) {
   d <- .arc_runs(x, y); L <- .arc_locus(locus)
   fit <- as.matrix(fit)
   stopifnot(nrow(fit) == d$R, ncol(fit) >= 7L, length(bounds) == 4L, B >= 1L, block >= 0L)
   piece <- if (L$np == 0L) rep(1L, d$R) else if ("piece" %in% colnames(fit)) fit[, "piece"] else
     stop("with a locus table `fit` needs its `piece` column")
   stopifnot(L$np == 0L || all(piece >= 1 & piece <= L$np))
+  dr <- .arc_drift(drift, fit[, 2L], d$R)
   .arc_sync_threads()
   r <- .C(C_arcbt_k4eq_boot, d$X, d$Y, d$off, d$R, as.double(t(fit[, 1:7, drop = FALSE])),
           as.integer(piece), L$np, L$h, L$k, L$off, as.double(bounds), as.integer(B),
-          .arc_seeds(seed, d$R), as.integer(block), as.integer(it2), .arc_gate(gate), bl = integer(d$R),
-          out = double(4 * B * d$R), NAOK = TRUE)
-  b <- .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h"), d$names)
+          .arc_seeds(seed, d$R), as.integer(block), as.integer(it2), .arc_gate(gate), dr, bl = integer(d$R),
+          out = double(5 * B * d$R), NAOK = TRUE)
+  b <- .arc_bootarr(r$out, B, d$R, c("a", "b", "k", "h", "m"), d$names)
   list(boot = b, block = r$bl,
        lost = colSums(!is.finite(b[, "h", , drop = FALSE]), dims = 2L))
 }

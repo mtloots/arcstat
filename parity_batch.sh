@@ -30,9 +30,10 @@ qg <- k4eq_boot(x, y, eg$fit, B = 4L, gate = "best")
 xs <- c(x, x[1], x[2]); ys <- c(y, list(y[[1]] + cos(77*(1:120))), list(y[[2]] + cos(55*(1:90))))
 sf <- k4_shared_fit(xs, ys, sets = list(1:4, c(1,3), c(2,4), 2:3), bounds = c(-3, 0.95, -3, 4)); sp <- k4_shared_perm(xs, ys, group = c(1,2,1,2), rss_free = 1000, slack = c(1e-9, 0.02))
 kd <- k4_fit(x, y, bounds = c(-5, 0.95, -60, 4), gate = "best", dense = TRUE); b2 <- bc_host_fit(x, y, keep = 2L); mv <- k4_mv_boot(x[[2]], y[[2]], B = 2L, bounds = box, drift = TRUE)
+nb0 <- k4eq_boot(x, y, q0$fit, B = 4L); nb1 <- k4eq_boot(x, y, q0$fit, B = 3L, drift = TRUE); nf0 <- k4_boot(x, y, f0, box, B = 3L, gate = "best")
 v <- function(a) as.vector(aperm(a, c(2, 1, 3)))
 vals <- c(k4_locus_k(c(-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6)), t(f$fit), aperm(f$pieces, c(2, 3, 1)), t(g$fit), aperm(g$pieces, c(2, 3, 1)),
-          t(b$free), t(b$con), v(m$boot), m$block, v(i$boot), i$block, v(q$boot), q$block, v(r$boot), r$block, t(u), t(w), t(z), t(b2$free), t(b2$con), mv$a_pt, t(mv$A), t(wd), t(w0), t(f0), t(q0$fit), wr, lw, t(eg$fit), aperm(eg$pieces, c(2, 3, 1)), t(eg$physical), t(en$fit), t(en$physical), t(ki), v(qg$boot), k4_mv_share(mv$A[, 1:4], 0.1), k4_mv_share(i$boot[, c("a","k","h"), 1]), t(sf$fit), t(do.call(rbind, sf$runs)), t(sp$stat), sp$p, t(kd))
+          t(b$free), t(b$con), v(m$boot), m$block, v(i$boot), i$block, v(q$boot), q$block, v(r$boot), r$block, t(u), t(w), t(z), t(b2$free), t(b2$con), mv$a_pt, t(mv$A), t(wd), t(w0), t(f0), t(q0$fit), wr, lw, t(eg$fit), aperm(eg$pieces, c(2, 3, 1)), t(eg$physical), t(en$fit), t(en$physical), t(ki), v(qg$boot), k4_mv_share(mv$A[, 1:4], 0.1), k4_mv_share(i$boot[, c("a","k","h"), 1]), t(sf$fit), t(do.call(rbind, sf$runs)), t(sp$stat), sp$p, t(kd), v(nb0$boot), nb0$block, v(nb1$boot), v(nf0$boot), nf0$block)
 cat(ifelse(is.nan(vals), "NaN", sprintf("%.17g", vals)), sep="\n")
 ' > "$OUT/r.txt"
 for T in "" 1 2 8; do
@@ -63,9 +64,10 @@ qg = k4eq_boot(x, y, eg[0], B=4, gate="best")[0]
 xs = x + [x[0], x[1]]; ys = y + [[y[0][j] + math.cos(77*(j+1)) for j in range(120)], [y[1][j] + math.cos(55*(j+1)) for j in range(90)]]
 sf = k4_shared_fit(xs, ys, sets=[[0,1,2,3],[0,2],[1,3],[1,2]], bounds=(-3, 0.95, -3, 4)); sp = k4_shared_perm(xs, ys, group=[1,2,1,2], rss_free=[1000], slack=(1e-9, 0.02))
 kd = k4_fit(x, y, bounds=(-5, 0.95, -60, 4), gate="best", dense=True); b2 = bc_host_fit(x, y, keep=2); mv = k4_mv_boot(x[1], y[1], B=2, bounds=box, drift=True)
+nb0 = k4eq_boot(x, y, q0, B=4); nb1 = k4eq_boot(x, y, q0, B=3, drift=True); nf0 = k4_boot(x, y, f0, box, B=3, gate="best")
 def flat(o):
     return [v for e in o for v in flat(e)] if isinstance(o, (list, tuple)) else [o]
-vals = flat([k4_locus_k([-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6]), f, fp, g, gp, fr, co, m, mb, i, ib, q, qb, r, rb, u, w, z, b2, mv, wd, w0, f0, q0, wr, lw, eg, en[0], en[2], ki, qg, k4_mv_share([r[:4] for r in mv[1]], 0.1), k4_mv_share([[r[0], r[2], r[3]] for r in i[0]]), sf[0], [r for s in sf[1] for r in s], sp[0], sp[1], kd])
+vals = flat([k4_locus_k([-60, -10, -1, -1e-9, 0, 0.3, 0.4999, 0.6]), f, fp, g, gp, fr, co, m, mb, i, ib, q, qb, r, rb, u, w, z, b2, mv, wd, w0, f0, q0, wr, lw, eg, en[0], en[2], ki, qg, k4_mv_share([r[:4] for r in mv[1]], 0.1), k4_mv_share([[r[0], r[2], r[3]] for r in i[0]]), sf[0], [r for s in sf[1] for r in s], sp[0], sp[1], kd, nb0, nb1[0], nf0])
 print("\n".join("NaN" if math.isnan(v) else "%.17g" % v for v in vals))
 PY
 cmp -s "$OUT/r.txt" "$OUT/py$T.txt" || { echo "VERDICT: MISMATCH (threads '$T')"; diff "$OUT/r.txt" "$OUT/py$T.txt" | head; exit 1; }

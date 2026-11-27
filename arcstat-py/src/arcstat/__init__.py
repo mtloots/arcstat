@@ -108,4 +108,4 @@ __all__ = [
     "k4_tau34",
     "sample_lmoments",
 ]
-__version__ = "0.4.0"
+__version__ = "0.4.1"

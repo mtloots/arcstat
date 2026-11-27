@@ -39,7 +39,8 @@
 /* Solve the 3x3 normal equations for (g0, m, g1) against columns (1, x, F) and return the residual
  * sum of squares. Symmetric positive definite in the non-degenerate case; a ridge of last resort
  * keeps a collinear design from producing a spurious zero. */
-static double varpro_rss(const double *x, const double *F, const double *y, int n, double *beta) {
+/* nodrift: the column x is dropped and m is exactly 0 (its row of the system is decoupled) */
+static double varpro_rss(const double *x, const double *F, const double *y, int n, int nodrift, double *beta) {
   double A[6], b[3];                        /* upper triangle of the 3x3, then the right side */
   double s1 = 0, sx = 0, sf = 0, sxx = 0, sxf = 0, sff = 0, sy = 0, sxy = 0, sfy = 0;
   for (int i = 0; i < n; i++) {
@@ -48,6 +49,7 @@ static double varpro_rss(const double *x, const double *F, const double *y, int 
     sxx += xi * xi; sxf += xi * fi; sff += fi * fi;
     sy += yi; sxy += xi * yi; sfy += fi * yi;
   }
+  if (nodrift) { sx = sxf = sxy = 0.0; sxx = 1.0; }
   A[0] = s1;  A[1] = sx;  A[2] = sf;
   A[3] = sxx; A[4] = sxf; A[5] = sff;
   b[0] = sy;  b[1] = sxy; b[2] = sfy;
@@ -73,14 +75,14 @@ static double varpro_rss(const double *x, const double *F, const double *y, int 
   }
   double rss = 0.0;
   for (int i = 0; i < n; i++) {
-    double e = y[i] - (beta[0] + beta[1] * x[i] + beta[2] * F[i]);
+    double e = y[i] - (beta[0] + (nodrift ? 0.0 : beta[1] * x[i]) + beta[2] * F[i]);
     rss += e * e;
   }
   return isfinite(rss) ? rss : HUGE_VAL;
 }
 
 typedef struct { const double *x, *y; int n; double *Fbuf; const double *bnd;
-                 int hfix; double hval; } vp_ctx;   /* hfix: hold h at hval and search the rest */
+                 int hfix; double hval; int nodrift; } vp_ctx;   /* hfix: hold h at hval and search the rest */
 /* bnd = (k_lo, k_hi, h_lo, h_hi). The admissible shape region is a MODELLING choice, not a
  * numerical one: on the edible oils a wider k lowered the residual sum of squares yet moved
  * the induction periods away from the laboratory values, so the caller must state it. */
@@ -104,7 +106,7 @@ static double vp_obj(const double *p, void *vc) {
   for (int i = 1; i < c->n; i++) { if (c->Fbuf[i] < lo) lo = c->Fbuf[i]; if (c->Fbuf[i] > hi) hi = c->Fbuf[i]; }
   if (hi - lo < 1e-8) return 1e12;
   double beta[3];
-  double r = varpro_rss(c->x, c->Fbuf, c->y, c->n, beta);
+  double r = varpro_rss(c->x, c->Fbuf, c->y, c->n, c->nodrift, beta);
   return isfinite(r) ? r : 1e12;
 }
 
@@ -163,6 +165,12 @@ static void nmd(double (*f)(const double *, void *), void *ctx, const double *st
 void arck4_fit_varpro(const double *x, const double *y, const int *n, const double *starts,
                       const int *nstart, const int *maxit, const double *bounds,
                       const double *hfix, double *out) {
+  arck4_fit_varpro_dr(x, y, n, starts, nstart, maxit, bounds, hfix, 1, out);
+}
+/* the same with the drift term optional: drift = 0 holds m at exactly 0 (the curve y = g0 + g1 F) */
+void arck4_fit_varpro_dr(const double *x, const double *y, const int *n, const double *starts,
+                         const int *nstart, const int *maxit, const double *bounds,
+                         const double *hfix, int drift, double *out) {
   int N = *n, S = *nstart, MI = *maxit;
   double *bestp = (double *)calloc((size_t)S * 4, sizeof(double));
   double *bestf = (double *)malloc((size_t)S * sizeof(double));
@@ -177,6 +185,7 @@ void arck4_fit_varpro(const double *x, const double *y, const int *n, const doub
     if (Fb) {
       vp_ctx c; c.x = x; c.y = y; c.n = N; c.Fbuf = Fb; c.bnd = bounds;
       c.hfix = isfinite(*hfix); c.hval = *hfix;   /* NaN = free fit */
+      c.nodrift = !drift;
       int dsr = c.hfix ? 3 : 4;    /* with h held, only the other three are searched */
 #ifdef _OPENMP
 #pragma omp for schedule(static)
@@ -201,10 +210,10 @@ void arck4_fit_varpro(const double *x, const double *y, const int *n, const doub
   double beta[3] = {0,0,0}; double rss = HUGE_VAL;
   if (Fb) {
     for (int i = 0; i < N; i++) Fb[i] = k4_F(x[i], mu, sg, k, h);
-    rss = varpro_rss(x, Fb, y, N, beta);
+    rss = varpro_rss(x, Fb, y, N, !drift, beta);
     free(Fb);
   }
-  out[0] = beta[0]; out[1] = beta[1]; out[2] = beta[2];
+  out[0] = beta[0]; out[1] = drift ? beta[1] : 0.0; out[2] = beta[2];
   out[3] = mu; out[4] = sg; out[5] = k; out[6] = h; out[7] = rss;
   free(bestp); free(bestf);
 }

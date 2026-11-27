@@ -95,3 +95,11 @@ test_that("CHARACTERISTIC FUNCTION: value at zero is one, and it is conjugate-sy
   expect_lt(abs(cf_arclength_family("exponential", lambda = 2) - cf_arclength_family("exponential",
                                                                                      lambda = 1)), 1e-09)
 })
+
+test_that("the Bayesian evidence refuses a reference made for another sample size", {
+  ref <- bb_ref_disc(40L, D = 20L, m = 4L)
+  expect_identical(attr(ref, "n"), 40L)
+  u <- ((1:40 - 0.5) / 40)^1.3
+  expect_true(is.finite(bb_evidence(u, ref = ref, M = 50L)))
+  expect_error(bb_evidence(u[1:30], ref = ref, M = 50L), "size 40")
+})

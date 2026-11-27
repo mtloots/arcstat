@@ -152,7 +152,12 @@ test_that("EQUIVALENCE fitting recovers a member that lies on the curve", {
   f <- eqfit_bc(x, y, st, curve)
   expect_lt(f$sse, 1e-06)
   expect_lt(abs(f$th[5] - al), 0.05)
-  ## the bootstrap of the same fit is shaped correctly and reproducible under its seed
-  b <- eqfit_bc_boot(x, y, f$th, curve, B = 4L, seed = 4207L)
-  expect_identical(eqfit_bc_boot(x, y, f$th, curve, B = 4L, seed = 4207L), b)
+  ## the bootstrap refits on the curve, so it takes the constrained fit and refuses the free one
+  fc <- eqfit_bc(x, y, matrix(c(0, 0, 0, 0, 0, 0, 0, 0, 0, 1), nrow = 2, byrow = TRUE), curve)
+  expect_equal(fc$th[6], stats::approx(curve[, 1], curve[, 2], fc$th[5])$y, tolerance = 1e-12)
+  expect_error(eqfit_bc_boot(x, y, f$th, curve, B = 2L), "must be a fit on")
+  ## the bootstrap of the constrained fit is shaped correctly and reproducible under its seed
+  b <- eqfit_bc_boot(x, y, fc$th, curve, B = 4L, seed = 4207L)
+  expect_length(b, 4L)
+  expect_identical(eqfit_bc_boot(x, y, fc$th, curve, B = 4L, seed = 4207L), b)
 })

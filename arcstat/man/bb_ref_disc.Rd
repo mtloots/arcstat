@@ -16,7 +16,7 @@ bb_ref_disc(n, D = 300L, m = 16L, seed = 7L)
 \item{seed}{integer seed for the C back-end.}
 }
 \value{
-a matrix with columns \code{arc} and \code{ks}.
+a matrix with columns \code{arc} and \code{ks}, and the sample size as attribute \code{n}.
 }
 \description{
 Pools the posterior discrepancies of \code{D} uniform data sets (\code{m} draws each) to give the

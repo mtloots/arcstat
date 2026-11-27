@@ -1,3 +1,33 @@
+# arcstat 0.4.1
+
+## Bug fixes
+
+* `k4eq_boot()` refitted every replicate WITH a linear drift term, whatever the point fit was: the
+  setting of the point fit was not passed to the replicates (the back end held the flag at "drift" for
+  every bootstrap). For a fit made with `k4eq_fit(drift = FALSE)` the replicates were therefore fitted
+  by a different model from the one estimated, and the bootstrap spread of the reading was inflated
+  (on two induction curves of 600 points, standard errors of 0.262 and 0.151 hours where the
+  replicates refitted without drift give 0.138 and 0.103). Fits made with drift, the default, are not
+  affected: their replicates are unchanged to the last bit.
+* `k4_boot()` had the same fault: its replicates were always refitted with drift, so the bootstrap of a
+  `k4_fit(drift = FALSE)` fit was wrong in the same way. Fits with drift are not affected.
+* Both bootstraps now take a `drift` argument, by default read off the fit (a fit made without drift has
+  a slope `m` of exactly zero), and refuse `drift = FALSE` for a fit that carries a slope. Their output
+  gains a last column `m`, the fitted slope of each replicate, so that the setting can be checked.
+* `k4_boot()` gains `gate`: `"best"` keeps a replicate only if its refit is physical, the rule of a point
+  fit made with `gate = "best"`; and `gev` is now read from the `gev` column of a `k4_fit()` result when
+  it is not given.
+* `eqfit_bc_boot()` refuses a point fit that does not lie on the equivalence curve it is given: its
+  replicates are always refitted on the curve, so a free fit would have been bootstrapped as a
+  constrained one.
+* `bb_evidence()` refuses a reference from `bb_ref_disc()` made for another sample size (the reference now
+  carries its `n`). In Python its threshold is now R's type-7 quantile, so that the two fronts return the
+  same evidence (they differed when the level fell between order statistics of the reference).
+* The parallel loop of the exact interval of the circular family now honours `arc_threads()`.
+* New tests check, for every bootstrap, that a replicate is fitted under the settings of its point fit
+  (drift, submodel, box or bounds, locus piece and gate): a block as long as the series makes the
+  replicate the data themselves, whose refit must return the point fit.
+
 # arcstat 0.4.0
 
 ## New features

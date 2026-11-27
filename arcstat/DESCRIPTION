@@ -1,7 +1,7 @@
 Package: arcstat
 Type: Package
 Title: Arc-Length Statistics, Equivalence Families and Induction Curves
-Version: 0.4.0
+Version: 0.4.1
 Authors@R: person("M. Theodor", "Loots", role = c("aut", "cre"), email = "theo.loots@gmail.com",
                     comment = c(ORCID = "0000-0001-7722-3913"))
 Description: Inference from the arc length of statistical functions, and the curves of the

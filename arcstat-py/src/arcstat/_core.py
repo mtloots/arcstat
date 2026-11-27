@@ -194,15 +194,27 @@ def bb_post_disc(u, M, seed=1):
     u = sorted(u); out = (_ct.c_double * (2 * M))()
     _lib.bb_post(_i(len(u)), _d(u), _i(M), _i(seed), out)
     return [(out[2 * i], out[2 * i + 1]) for i in range(M)]
+class _BBRef(list):
+    """A reference of bb_ref_disc: a list of (arc, ks) pairs that remembers its sample size n."""
+    n = None
 def bb_ref_disc(n, D=300, m=16, seed=7):
-    """Null reference distribution of the arc-length discrepancy"""
+    """Null reference distribution of the arc-length discrepancy, for samples of size n"""
     out = (_ct.c_double * (2 * D * m))(); _lib.bb_ref(_i(n), _i(D), _i(m), _i(seed), out)
-    return [(out[2 * i], out[2 * i + 1]) for i in range(D * m)]
+    ref = _BBRef((out[2 * i], out[2 * i + 1]) for i in range(D * m)); ref.n = int(n)
+    return ref
 def bb_evidence(u, which="arc", level=0.95, M=1500, ref=None, seed=1):
-    """Bayesian arc-length goodness-of-fit evidence"""
+    """Bayesian arc-length goodness-of-fit evidence. ref must be a reference for len(u) (one of
+    another size is refused); the threshold is the level quantile of the reference by linear
+    interpolation between order statistics, as R's quantile() (type 7)."""
     j = 0 if which == "arc" else 1
     if ref is None: ref = bb_ref_disc(len(u))
-    col = sorted(r[j] for r in ref); thr = col[int(level * (len(col) - 1))]
+    if getattr(ref, "n", None) is not None and ref.n != len(u):
+        raise ValueError("ref was computed for samples of size %d, not %d" % (ref.n, len(u)))
+    col = sorted(r[j] for r in ref)
+    idx = 1 + max(len(col) - 1, 0) * level; lo = int(_math.floor(idx)); h = idx - lo   # as R, type 7
+    thr = col[lo - 1]
+    if h > 0 and col[min(lo, len(col) - 1)] != thr:
+        thr = (1 - h) * thr + h * col[lo]
     return sum(1 for r in bb_post_disc(u, M, seed) if r[j] > thr) / M
 
 # ---- characteristic-function arc length ----
@@ -825,47 +837,72 @@ def _seeds(seed, R):
         raise ValueError("one seed, or one per run")
     return s
 
-_lib.arcbt_k4_boot.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _ip, _ip, _ip, _dp]
-def k4_boot(x, y, fit, box, gev=False, B=400, seed=4207, block=0, maxit=800):
-    """Moving-block residual bootstrap of free kappa fits with drift, many runs in one call; see the R
-    function of the same name. fit: rows (g0, m, g1, mu, sigma, k, h); box: one (k_lo, k_hi, h_lo,
-    h_hi) or one per run; gev: one flag or one per run. Returns (boot, block): boot[r][b] is
-    (a, b, k, h, sel)."""
+def _drift(drift, fit, R):
+    """The drift setting of every run of a point fit: by default read off the fit, whose slope m is
+    exactly 0 when it was made with drift=False; drift=False for a fit with a slope is refused."""
+    m = [float(list(row)[1]) for row in fit]
+    if drift is None:
+        return [0 if (_math.isfinite(v) and v == 0.0) else 1 for v in m]
+    d = list(drift) if hasattr(drift, "__len__") else [drift] * R
+    if len(d) != R:
+        raise ValueError("drift must be one flag or one per run")
+    d = [int(bool(v)) for v in d]
+    if any(not v and _math.isfinite(s) and s != 0.0 for v, s in zip(d, m)):
+        raise ValueError("drift=False for a fit with a nonzero slope m: the bootstrap must use the point fit's own setting")
+    return d
+
+_lib.arcbt_k4_boot.argtypes = [_dp, _dp, _ip, _ip, _dp, _dp, _ip, _ip, _ip, _ip, _ip, _ip, _ip, _ip, _dp]
+def k4_boot(x, y, fit, box, gev=None, B=400, seed=4207, block=0, maxit=800, drift=None, gate=False):
+    """Moving-block residual bootstrap of free kappa fits, many runs in one call; see the R function
+    of the same name. fit: rows (g0, m, g1, mu, sigma, k, h, ...); box: one (k_lo, k_hi, h_lo, h_hi)
+    or one per run; gev: one flag or one per run, None reads column 10 of rows of k4_fit (14 or more
+    numbers) and is False otherwise; drift: None reads it off the fit (False where m is exactly 0);
+    gate: "best" keeps only physical refits, as a point fit made with gate="best". Every replicate is
+    fitted under the point fit's box, submodel, drift and gate. Returns (boot, block): boot[r][b] is
+    (a, b, k, h, sel, m), m the fitted slope (exactly 0 without drift)."""
     X, Y, off, R = _runs(x, y)
-    F = [float(v) for row in fit for v in list(row)[:7]]
+    fit = [list(row) for row in fit]
+    F = [float(v) for row in fit for v in row[:7]]
     try:
         len(box[0])
     except TypeError:
         box = [box]
     if len(box) == 1:
         box = list(box) * R
+    if gev is None:
+        gev = [len(row) >= 14 and row[10] == 1 for row in fit]
     g = list(gev) if hasattr(gev, "__len__") else [gev] * R
     if len(F) != 7 * R or len(box) != R or len(g) != R:
         raise ValueError("fit, box and gev must have one row per run")
-    bl = (_ct.c_int * R)(); out = (_ct.c_double * (5 * B * R))()
+    dr = _drift(drift, fit, R)
+    bl = (_ct.c_int * R)(); out = (_ct.c_double * (6 * B * R))()
     _lib.arcbt_k4_boot(_vec(X), _vec(Y), _iv(off), _i(R), _vec(F), _vec([v for r in box for v in r]),
-                       _iv([int(bool(v)) for v in g]), _i(B), _iv(_seeds(seed, R)), _i(block),
-                       _i(maxit), bl, out)
-    return [_rows(r, 5) for r in _rows(list(out), 5 * B)], list(bl)
+                       _iv([int(bool(v)) for v in g]), _iv(dr), _i(_gate(gate)), _i(B), _iv(_seeds(seed, R)),
+                       _i(block), _i(maxit), bl, out)
+    return [_rows(r, 6) for r in _rows(list(out), 6 * B)], list(bl)
 
 _lib.arcbt_k4eq_boot.argtypes = [_dp, _dp, _ip, _ip, _dp, _ip, _ip, _dp, _dp, _ip, _dp, _ip, _ip, _ip,
-                                 _ip, _ip, _ip, _dp]
+                                 _ip, _ip, _ip, _ip, _dp]
 def k4eq_boot(x, y, fit, locus=None, bounds=(-0.98, 0.95, -60.0, 4.0), B=400, seed=4207, block=0,
-              it2=100, gate=False):
-    """The bootstrap of a k4eq_fit, refitted on its own piece of the locus. Returns (boot, block):
-    boot[r][b] is (a, b, k, h). gate="best" keeps only refits that end at an interior physical
-    minimum; the others are NaN."""
+              it2=100, gate=False, drift=None):
+    """The bootstrap of a k4eq_fit, refitted on its own piece of the locus under the point fit's
+    bounds, gate and drift. Returns (boot, block): boot[r][b] is (a, b, k, h, m), m the fitted slope. gate="best" keeps
+    only refits that end at an interior physical minimum; the others are NaN. drift: None reads it
+    off the fit (False where m is exactly 0, as for a fit made with drift=False); until 0.4.0 the
+    replicates were always refitted with drift."""
     X, Y, off, R = _runs(x, y)
     n_p, h, k, toff = _locus(locus)
-    F = [float(v) for row in fit for v in list(row)[:7]]
+    fit = [list(row) for row in fit]
+    F = [float(v) for row in fit for v in row[:7]]
     piece = [int(row[10]) if n_p > 0 else 1 for row in fit]
     if len(F) != 7 * R or any(not 1 <= p <= max(n_p, 1) for p in piece):
         raise ValueError("fit must have one row per run, with its piece")
-    bl = (_ct.c_int * R)(); out = (_ct.c_double * (4 * B * R))()
+    dr = _drift(drift, fit, R)
+    bl = (_ct.c_int * R)(); out = (_ct.c_double * (5 * B * R))()
     _lib.arcbt_k4eq_boot(_vec(X), _vec(Y), _iv(off), _i(R), _vec(F), _iv(piece), _i(n_p), _vec(h),
                          _vec(k), _iv(toff), _vec(bounds), _i(B), _iv(_seeds(seed, R)), _i(block),
-                         _i(it2), _i(_gate(gate)), bl, out)
-    return [_rows(r, 4) for r in _rows(list(out), 4 * B)], list(bl)
+                         _i(it2), _i(_gate(gate)), _iv(dr), bl, out)
+    return [_rows(r, 5) for r in _rows(list(out), 5 * B)], list(bl)
 
 _lib.arck4_mv_boot.argtypes = [_dp, _dp, _ip, _dp, _ip, _ip, _dp, _ip, _ip, _dp, _dp]
 def k4_mv_boot(x, y, cut=float("-inf"), B=50, seed=4207, bounds=(-0.98, 0.95, 0.0, 4.0),

@@ -22,11 +22,12 @@ void arcbt_lmomw(const double *X, const double *Y, const int *off, const int *nr
                  const double *bounds, const int *window, const int *ng, const int *nm, double *out);
 int arcbt_k4one(const double *x, const double *y, int n, const double *box, double hfix, double *o8);
 void arcbt_k4_boot(const double *X, const double *Y, const int *off, const int *nr,
-                   const double *fit, const double *box, const int *gev, const int *B,
-                   const int *seed, const int *block, const int *maxit, int *bl, double *out);
+                   const double *fit, const double *box, const int *gev, const int *drift,
+                   const int *gate, const int *B, const int *seed, const int *block, const int *maxit,
+                   int *bl, double *out);
 void arcbt_k4eq_boot(const double *X, const double *Y, const int *off, const int *nr,
                      const double *fit, const int *piece, const int *npiece, const double *TH,
                      const double *TK, const int *toff, const double *bounds, const int *B,
-                     const int *seed, const int *block, const int *it2, const int *gate, int *bl,
-                     double *out);
+                     const int *seed, const int *block, const int *it2, const int *gate,
+                     const int *drift, int *bl, double *out);
 #endif

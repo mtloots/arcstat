@@ -39,6 +39,8 @@ test_that("results are bit-identical on 1, 2 and 8 threads", {
          k4_shared_fit(c(X, X), c(Y, lapply(Y, rev)), sets = list(1:4, 1:2)),
          k4_lmom_window(X[1], Y[1], c(1, 0.2, 300), ngrid = 400L, nmodel = 400L),
          k4_boot(X, Y, fit, box, gev = c(FALSE, TRUE), B = 6L), k4eq_boot(X, Y, e$fit, B = 6L),
+         k4eq_boot(X, Y, k4eq_fit(X, Y, drift = FALSE)$fit, B = 4L),
+         k4_boot(X, Y, k4_fit(X, Y, drift = FALSE), box, B = 4L, gate = "best"),
          k4_mv_boot(R2$x, R2$y, B = 2L, bounds = box, maxit = 300L),
          k4_fit_varpro(R1$x, R1$y, rbind(c(9, log(2), 0, 0.1), c(8, 0, 0, -1)), bounds = box),
          eqfit_estsim(0.4, 0.65, 3L, 60L, seed = 11L, maxit = 100L), eqfit_taus(0.4, 0.65, 4L, 50L))
@@ -284,4 +286,58 @@ test_that("free fit reaches minima with k far below -1", {
   a <- k4_fit(R1$x, y, bounds = c(-30, 0.95, -60, 4)); d <- k4_fit(R1$x, y, bounds = c(-30, 0.95, -60, 4), dense = TRUE)
   expect_lt(a[1, "rss"], d[1, "rss"] * (1 + 1e-6))
   expect_lt(abs(a[1, "k"] + 4), 1)
+})
+
+## Every setting of a point fit must reach its replicates. Up to 0.4.0 k4eq_boot (and k4_boot) refitted
+## every replicate WITH a drift term whatever the point fit was, which nearly doubled the spread of a
+## fit made without drift. A block as long as the series makes the replicate the data themselves, so
+## its refit, started at the point fit and made under the point fit's settings, must return that fit.
+test_that("every replicate is fitted under the settings of its point fit", {
+  S1 <- kappa_run(4321, -0.3, 0.2, drift = 0); S2 <- kappa_run(977, 0.1, -0.4, 90L, drift = 0)
+  X0 <- list(S1$x, S2$x); Y0 <- list(S1$y, S2$y)
+  ## constrained fit without drift: replicates without drift, slope exactly zero
+  e0 <- k4eq_fit(X0, Y0, drift = FALSE)
+  expect_true(all(e0$fit[, "m"] == 0))
+  q0 <- k4eq_boot(X0, Y0, e0$fit, B = 8L)
+  expect_true(all(q0$lost == 0L) && all(q0$boot[, "m", ] == 0))
+  expect_identical(q0$boot, k4eq_boot(X0, Y0, e0$fit, B = 8L, drift = FALSE)$boot)
+  q1 <- k4eq_boot(X0, Y0, e0$fit, B = 8L, drift = TRUE)          # the 0.4.0 behaviour, now only on request
+  expect_true(all(q1$boot[, "m", ] != 0))
+  expect_error(k4eq_boot(X, Y, k4eq_fit(X, Y)$fit, B = 2L, drift = FALSE), "nonzero slope")
+  ## the whole series as one block: the refit returns the point fit, for every setting
+  same <- function(b, f, cols = c("a", "k", "h", "m"), tol = 1e-6)
+    for (r in seq_len(nrow(f))) expect_equal(unname(b$boot[1, cols, r]), unname(f[r, cols]), tolerance = tol)
+  same(k4eq_boot(X0, Y0, e0$fit, B = 1L, block = 1e6L), e0$fit)
+  e1 <- k4eq_fit(X, Y); same(k4eq_boot(X, Y, e1$fit, B = 1L, block = 1e6L), e1$fit)
+  g1 <- k4eq_fit(X, Y, gate = "best"); same(k4eq_boot(X, Y, g1$fit, B = 1L, block = 1e6L, gate = "best"), g1$fit)
+  g0 <- k4eq_fit(X0, Y0, gate = "best", drift = FALSE)
+  same(k4eq_boot(X0, Y0, g0$fit, B = 1L, block = 1e6L, gate = "best"), g0$fit)
+  hs <- seq(-1.2, 0.45, 0.05); tab <- list(cbind(hs[hs <= 0], k4_locus_k(hs[hs <= 0])), cbind(hs[hs >= 0], k4_locus_k(hs[hs >= 0])))
+  t0 <- k4eq_fit(X0, Y0, locus = tab, drift = FALSE)
+  same(k4eq_boot(X0, Y0, t0$fit, locus = tab, B = 1L, block = 1e6L), t0$fit)
+  bb <- c(-0.9, 0.9, -1, 0.45); b0 <- k4eq_fit(X0, Y0, bounds = bb, drift = FALSE)
+  same(k4eq_boot(X0, Y0, b0$fit, bounds = bb, B = 1L, block = 1e6L), b0$fit)
+  ## free fits: drift read off the fit, submodel read off its gev column, box and gate as passed
+  f0 <- k4_fit(X0, Y0, drift = FALSE)
+  expect_true(all(f0[, "m"] == 0))
+  k0 <- k4_boot(X0, Y0, f0, box, B = 6L)
+  expect_true(all(k0$boot[, "m", ] == 0))
+  expect_identical(k0$boot, k4_boot(X0, Y0, f0, box, B = 6L, drift = FALSE)$boot)
+  expect_true(all(k4_boot(X0, Y0, f0, box, B = 6L, drift = TRUE)$boot[, "m", ] != 0))
+  same(k4_boot(X0, Y0, f0, box, B = 1L, block = 1e6L), f0, tol = 1e-4)
+  f1 <- k4_fit(X, Y); same(k4_boot(X, Y, f1, box, B = 1L, block = 1e6L), f1, tol = 1e-4)
+  fb <- c(-0.98, 0.95, -3, 4); f3 <- k4_fit(X0, Y0, bounds = fb, drift = FALSE)
+  k3 <- k4_boot(X0, Y0, f3, fb, B = 6L)
+  expect_true(all(k3$boot[, "h", ] >= -3, na.rm = TRUE))
+  fg <- cbind(f1[, 1:7], gev = c(1, 0)); fg[1, "h"] <- 0
+  kg <- k4_boot(X, Y, fg, box, B = 4L)
+  expect_true(all(kg$boot[, "h", 1] == 0) && all(is.nan(kg$boot[, "sel", 1])) && all(kg$boot[, "sel", 2] %in% c(0, 1)))
+  fp <- k4_fit(X0, Y0, gate = "best", drift = FALSE)
+  kp <- k4_boot(X0, Y0, fp, box, B = 8L, gate = "best")
+  for (r in 1:2) {
+    a <- kp$boot[, "a", r]; a <- a[is.finite(a)]
+    expect_true(all(a >= 0 & a <= max(X0[[r]])))
+  }
+  same(k4_boot(X0, Y0, fp, box, B = 1L, block = 1e6L, gate = "best"), fp, tol = 1e-4)
+  expect_error(k4_boot(X, Y, f1, box, B = 2L, drift = FALSE), "nonzero slope")
 })

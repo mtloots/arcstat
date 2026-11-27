@@ -127,10 +127,13 @@ All of these return plain R objects rather than a class, so they can be compared
 \description{
 \code{eqfit_bc} fits the beta-companion sigmoid by deterministic Nelder--Mead from a matrix
 of starts (free: six columns; constrained to the equivalence curve: five), returning the
-fitted six-parameter theta, the SSE and both readings. \code{eqfit_bc_boot} runs the iid
-residual bootstrap of the constrained fit, warm-started, OpenMP over replicates with
-per-replicate splitmix64 streams. \code{eqfit_k4eq} and \code{eqfit_k4eq_boot} are the
-kappa-family analogues constrained to a locus table h -> k. \code{eqfit_msim} runs the
+fitted six-parameter theta, the SSE and both readings. \code{eqfit_bc_boot} runs the
+moving-block residual bootstrap (block length from the residual autocorrelation, as
+\code{eqfit_blocklen}) of the constrained fit, warm-started, OpenMP over replicates with
+per-replicate splitmix64 streams; its \code{th} must be a fit on \code{curve}, since every
+replicate is refitted on the curve, and anything else is an error. \code{eqfit_k4eq} and
+\code{eqfit_k4eq_boot} are the kappa-family analogues constrained to a locus table h -> k (both
+without drift); \code{eqfit_k4eq_boot} must be given the locus table of its point fit. \code{eqfit_msim} runs the
 complete manifold-test simulation (truth and two displacement arms, with the optimiser
 audit certificate). \code{eqfit_estsim} runs the three-estimator study. All outputs are
 byte-identical across thread counts and between the R and Python fronts.

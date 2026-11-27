@@ -15,7 +15,8 @@ bb_evidence(u, which = "arc", level = 0.95, M = 1500L, ref = NULL, seed = 1L)
 
 \item{M}{number of posterior draws.}
 
-\item{ref}{optional precomputed reference from \code{bb_ref_disc}; computed if \code{NULL}.}
+\item{ref}{optional precomputed reference from \code{bb_ref_disc}, for the sample size of \code{u}
+(a reference for another size is refused); computed if \code{NULL}.}
 
 \item{seed}{integer seed for the C back-end.}
 }

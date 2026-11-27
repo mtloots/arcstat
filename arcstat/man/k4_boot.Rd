@@ -3,18 +3,20 @@
 \name{k4_boot}
 \alias{k4_boot}
 \alias{k4eq_boot}
-\title{Residual bootstraps of kappa fits with drift, many runs in one call}
+\title{Residual bootstraps of kappa fits, many runs in one call}
 \usage{
 k4_boot(
   x,
   y,
   fit,
   box,
-  gev = FALSE,
+  gev = NULL,
   B = 400L,
   seed = 4207L,
   block = 0L,
-  maxit = 800L
+  maxit = 800L,
+  drift = NULL,
+  gate = FALSE
 )
 
 k4eq_boot(
@@ -27,7 +29,8 @@ k4eq_boot(
   seed = 4207L,
   block = 0L,
   it2 = 100L,
-  gate = FALSE
+  gate = FALSE,
+  drift = NULL
 )
 }
 \arguments{
@@ -39,7 +42,8 @@ fit (for \code{k4eq_boot} the \code{fit} of \code{\link{k4eq_fit}}, with its \co
 \item{box}{a matrix with one row per run, or one row for all: the box \code{(k_lo, k_hi, h_lo,
 h_hi)} of the run's own point fit.}
 
-\item{gev}{logical, one per run: the point fit holds \eqn{h = 0}.}
+\item{gev}{logical, one per run: the point fit holds \eqn{h = 0}. \code{NULL} (the default) reads it from
+a column \code{gev} of \code{fit} (as returned by \code{\link{k4_fit}}), and is \code{FALSE} without one.}
 
 \item{B}{replicates.}
 
@@ -51,32 +55,49 @@ a block length.}
 \item{maxit, it2}{Nelder--Mead iterations per pass of a free refit; Levenberg--Marquardt steps of a
 constrained one.}
 
+\item{drift}{logical, one per run or one for all: the point fit carries the drift \eqn{m x}.
+\code{NULL} (the default) takes it from the fit, \code{FALSE} where \code{m} is exactly zero. A run
+given \code{FALSE} whose fit has a nonzero slope is an error.}
+
+\item{gate}{the rule of the point fit. For \code{k4eq_boot}, \code{"best"} keeps a constrained
+replicate only if its refit, a local search from the fitted point, ends at an interior physical
+minimum; for \code{k4_boot}, \code{"best"} keeps a replicate only if its refit is physical
+(\code{g1 > 0} and the tangent reading between 0 and \code{max(x)}). The others are \code{NaN}.
+Pass \code{"best"} when the point fit was made with \code{gate = "best"}.}
+
 \item{locus}{\code{NULL} for the whole locus, computed inside (\code{\link{k4_locus_k}}); or a
 two-column matrix \code{(h, k)}, or a list of such matrices (pieces), interpolated linearly and
 not extrapolated. An interpolated table puts a kink in the objective at each of its nodes; all
 nodes are scanned, so the best one is found, but the fit is then a property of the table.}
 
 \item{bounds}{the box \code{(k_lo, k_hi, h_lo, h_hi)} the shape must lie in.}
-
-\item{gate}{\code{"best"} keeps a constrained replicate only if its refit, a local search from the
-fitted point, ends at an interior physical minimum; the others are \code{NaN}.}
 }
 \value{
 a list: \code{boot}, an array of \code{B} rows by columns by runs. The columns are the two
   readings \code{a} and \code{b}, the fitted \code{k} and \code{h}, and for \code{k4_boot} also
   \code{sel}, 1 if \eqn{n\log(rss_0/rss)-2<0} would choose \eqn{h=0} on that replicate and
-  \code{NaN} where \eqn{h} is held; and \code{block}, the block length of every run. \code{k4eq_boot} adds
+  \code{NaN} where \eqn{h} is held; for both, last, \code{m}, the fitted slope of the replicate, exactly
+  zero when the point fit has no drift; and \code{block}, the block length of every run. \code{k4eq_boot} adds
   \code{lost}, the number of replicates of every run without a refit.
 }
 \description{
 \code{k4_boot} resamples the residuals of a fitted free kappa curve in moving blocks and refits it
-by \code{\link{k4_fit_varpro}} from the fitted shape, each run in its own box and, where the point
-fit is the generalised extreme value submodel, with \eqn{h} held at zero. \code{k4eq_boot} does the
-same for a fit of \code{\link{k4eq_fit}}, refitted on the piece of the locus it lies on. Replicate
-\eqn{b} of a run draws from its own stream, determined by the run's seed and \eqn{b} alone, so the
-result does not depend on the number of threads or on which other runs are in the call.
+by the variable-projection search of \code{\link{k4_fit_varpro}} from the fitted shape, each run in
+its own box and, where the point fit is the generalised extreme value submodel, with \eqn{h} held at
+zero. \code{k4eq_boot} does the same for a fit of \code{\link{k4eq_fit}}, refitted on the piece of
+the locus it lies on. Replicate \eqn{b} of a run draws from its own stream, determined by the run's
+seed and \eqn{b} alone, so the result does not depend on the number of threads or on which other runs
+are in the call.
 }
 \details{
+Every replicate is fitted under the settings of the point fit: the same box or bounds and locus, the
+same submodel, the same rule on physical fits (\code{gate}) and the same drift. The drift setting is
+read off the fit by default: a fit made with \code{drift = FALSE} has a slope \code{m} of exactly zero,
+and its replicates are then drawn from the mean without drift and refitted without it. (Up to version
+0.4.0 the replicates were always refitted with a drift term, which inflated the spread of a fit made
+without one.) The box, bounds, locus and gate cannot be read off the fit and must be passed as they
+were given to the point fit.
+
 The block length is the first lag at which the residual autocorrelation is inside
 \eqn{\pm 2/\sqrt n} (at least 2; \eqn{n^{1/3}} if none of the first 200 is); \code{block = 1}
 resamples singly and any larger value fixes the length.
