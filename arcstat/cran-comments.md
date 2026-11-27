@@ -16,7 +16,11 @@ example, and the slowest runs in about two seconds.
 
 0 errors | 0 warnings | 1 note
 
-* The note is the CRAN incoming feasibility check.
+* The note is the CRAN incoming feasibility check, which lists "Hosking" as a possibly misspelled
+  word in DESCRIPTION. It is the surname of the author of the four-parameter kappa distribution,
+  cited there with its DOI.
+* Locally the HTML manual check also notes that math rendering was skipped because 'V8' is not
+  installed; win-builder checks the HTML manual without a note.
 
 ## Reverse dependencies
 

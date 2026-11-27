@@ -97,6 +97,7 @@ test_that("kappa fits on a locus table and their bootstrap", {
 })
 
 test_that("manifold-test simulation is deterministic and its audit holds", {
+  skip_on_cran()                                 # about 11 s
   al <- seq(-0.64, -0.52, length.out = 13); curve <- cbind(al, vapply(al, eq_bstar, 0))
   th0 <- c(1, 300, 0, 20, -0.60, eq_bstar(-0.60))
   thref <- rbind(c(0, 20, -0.58, eq_bstar(-0.58)), c(0, 20, -0.60, eq_bstar(-0.60)), c(0, 20, -0.62, eq_bstar(-0.62)))

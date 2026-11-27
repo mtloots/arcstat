@@ -157,6 +157,7 @@ test_that("free kappa fit: objective, submodel, gate, and not above Nelder-Mead"
 })
 
 test_that("the whole companion curve, and drift in every pipeline", {
+  skip_on_cran()                                 # about 11 s: the dense host search, twice
   h <- bc_host_fit(X, Y); t <- bc_host_fit(X, Y, curve)
   expect_true(all(h$con[, "rss"] <= t$con[, "rss"] * (1 + 1e-4)) && all(h$con[, "rss"] >= h$free[, "rss"]))
   expect_equal(h$con[[1, "beta"]], eq_bstar(h$con[[1, "alpha"]]), tolerance = 1e-12)
@@ -250,6 +251,7 @@ test_that("multiverse components are the covariance identity", {
 })
 
 test_that("shared shape: the least squares of the model, never above a pinned refit, and the permutation", {
+  skip_on_cran()                                 # about 8 s
   f <- function(mu, s, g, h, e) 1 + 0.2 * R1$x + g * k4_cdf(R1$x, mu, s, -0.4, h) + sin(e * seq_along(R1$x))
   y <- list(f(8, 2, 300, 0.3, 11), f(10, 2.5, 280, 0.3, 13), f(5, 1.2, 310, -0.4, 17), f(6, 1.5, 290, -0.4, 19))
   x <- rep(list(R1$x), 4)
